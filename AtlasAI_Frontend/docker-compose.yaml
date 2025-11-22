@@ -1,0 +1,11 @@
+version: "3.9"
+
+services:
+  ui_path_frontend:
+    container_name: ui_path_frontend
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/matei2807/atlas-ui-path-fe
+    ports:
+      - "5173:3000"

@@ -23,7 +23,7 @@ const API_BASE_URL = "http://localhost:8000/api/v2/ecommerce" // ⚠️ Verifica
 
 // ⚠️ TODO: In mod normal acest token vine din Login (localStorage/Context/Cookie)
 // Pentru moment, pune aici un token valid generat din Backend (Django Admin) pentru test
-const TEMPORARY_USER_TOKEN = "PUNE_AICI_TOKENUL_TAU_DIN_DJANGO_ADMIN" 
+const TEMPORARY_USER_TOKEN = "132c0560ba71c28a3a06c46ab01bf2cc73a02353" 
 
 // --- INTERFETE ---
 
@@ -42,35 +42,55 @@ export interface Order {
 
 // --- LOGICA DE MAPARE ---
 // Aceasta functie transforma ce vine din API in ce intelege Tabelul
+// --- LOGICA DE MAPARE ---
 const mapBackendToFrontend = (backendData: any): Order => {
-  // Mapping pentru statusuri (Backend -> Frontend)
-  // Presupunem ca backendul trimite statusuri gen "created", "shipped", etc.
+  // Mapping status
   let mappedStatus: Order['status'] = 'new';
   const s = backendData.status?.toLowerCase() || '';
   
-  if (s === 'created' || s === 'pending') mappedStatus = 'new';
+  if (s === 'created' || s === 'pending' || s === 'awaiting') mappedStatus = 'new';
   else if (s === 'picking' || s === 'invoiced' || s === 'processing') mappedStatus = 'processing';
   else if (s === 'shipped' || s === 'delivered') mappedStatus = 'completed';
-  else if (s === 'cancelled') mappedStatus = 'canceled';
+  else if (s === 'cancelled' || s === 'returned' || s === 'undelivered') mappedStatus = 'canceled';
 
-  // Determinare logo si nume platforma
-  const platform = backendData.platform_account?.platform || 'unknown';
+  // Mapping Platform Name/Logo
+  // The serializer sends 'platform_name' (e.g., "Trendyol RO Test"), 
+  // but we can also check the account platform type if you include it in the serializer,
+  // or infer it from the name. For now, let's map based on the name string.
+  const pName = (backendData.platform_name || '').toLowerCase();
   let logo = "??";
-  let name = "Unknown";
+  let name = backendData.platform_name || "Unknown";
 
-  if (platform === 'trendyol') { logo = "TR"; name = "Trendyol"; }
-  else if (platform === 'emag') { logo = "eM"; name = "eMAG"; }
-  else if (platform === 'woocommerce') { logo = "WC"; name = "WooCommerce"; }
+  if (pName.includes('trendyol')) { logo = "TR"; name = "Trendyol"; }
+  else if (pName.includes('emag')) { logo = "eM"; name = "eMAG"; }
+  else if (pName.includes('woo')) { logo = "WC"; name = "WooCommerce"; }
+
+  // Construct Full Name
+  const firstName = backendData.customer_first_name || "";
+  const lastName = backendData.customer_last_name || "";
+  const fullName = `${firstName} ${lastName}`.trim() || "Client Necunoscut";
+
+  // Handle Date Safely
+  // Backend sends: "2025-11-22T14:55:26..." (ISO String)
+  const rawDate = backendData.order_date || backendData.created_at;
+  const parsedDate = rawDate ? new Date(rawDate) : new Date();
 
   return {
-    id: backendData.order_number || backendData.id?.toString(), // Folosim order_number daca exista, altfel ID intern
-    channel: platform,
+    // Backend sends 'platform_order_number'
+    id: backendData.platform_order_number || backendData.id?.toString() || "??", 
+    
+    channel: name.toLowerCase(),
     channelName: name,
     channelLogo: logo,
-    customer: backendData.customer_name || "Client Necunoscut", 
+    
+    customer: fullName,
     customerEmail: backendData.customer_email || "-",
-    date: new Date(backendData.created_at || backendData.date), // Backendul trimite string ISO
-    total: parseFloat(backendData.total_price || backendData.total || "0"),
+    
+    date: parsedDate, 
+    
+    // Backend sends 'total_price'
+    total: parseFloat(backendData.total_price || "0"),
+    
     status: mappedStatus
   };
 }
