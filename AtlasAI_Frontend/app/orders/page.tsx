@@ -3,14 +3,7 @@
 import { AppSidebar } from "@/components/app-sidebar"
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { Separator } from "@/components/ui/separator"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -20,107 +13,67 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Search, CalendarIcon } from "lucide-react"
-import { useState } from "react"
+import { Search, CalendarIcon, Loader2, RefreshCcw } from "lucide-react"
+import { useState, useEffect } from "react"
 import { format } from "date-fns"
 import type { DateRange } from "react-day-picker"
 
-const mockOrders = [
-  {
-    id: "CMD-001",
-    channel: "emag",
-    channelName: "eMAG",
-    channelLogo: "eM",
-    customer: "Andrei Ionescu",
-    customerEmail: "andrei.ionescu@email.com",
-    date: new Date("2024-01-15T10:30:00"),
-    total: 234.5,
-    status: "new",
-  },
-  {
-    id: "CMD-002",
-    channel: "woocommerce",
-    channelName: "WooCommerce",
-    channelLogo: "WC",
-    customer: "Cristina Popescu",
-    customerEmail: "cristina.popescu@email.com",
-    date: new Date("2024-01-15T14:20:00"),
-    total: 156.75,
-    status: "processing",
-  },
-  {
-    id: "CMD-003",
-    channel: "trendyol",
-    channelName: "Trendyol",
-    channelLogo: "TR",
-    customer: "Marian Tascu",
-    customerEmail: "marian.tascu@email.com",
-    date: new Date("2024-01-14T16:45:00"),
-    total: 89.99,
-    status: "completed",
-  },
-  {
-    id: "CMD-004",
-    channel: "emag",
-    channelName: "eMAG",
-    channelLogo: "eM",
-    customer: "Matei Plesa",
-    customerEmail: "matei.plesa@email.com",
-    date: new Date("2024-01-14T09:15:00"),
-    total: 312.25,
-    status: "new",
-  },
-  {
-    id: "CMD-005",
-    channel: "woocommerce",
-    channelName: "WooCommerce",
-    channelLogo: "WC",
-    customer: "Daniel Hutu",
-    customerEmail: "daniel.hutu@email.com",
-    date: new Date("2024-01-13T11:30:00"),
-    total: 198.5,
-    status: "processing",
-  },
-  {
-    id: "CMD-006",
-    channel: "trendyol",
-    channelName: "Trendyol",
-    channelLogo: "TR",
-    customer: "Nicola Andrei",
-    customerEmail: "nicola.andrei@email.com",
-    date: new Date("2024-01-13T15:20:00"),
-    total: 445.8,
-    status: "completed",
-  },
-  {
-    id: "CMD-007",
-    channel: "emag",
-    channelName: "eMAG",
-    channelLogo: "eM",
-    customer: "Ion Marian",
-    customerEmail: "ion.marian@email.com",
-    date: new Date("2024-01-12T13:45:00"),
-    total: 67.25,
-    status: "canceled",
-  },
-  {
-    id: "CMD-008",
-    channel: "woocommerce",
-    channelName: "WooCommerce",
-    channelLogo: "WC",
-    customer: "Anca Cristina",
-    customerEmail: "anca.cristina@email.com",
-    date: new Date("2024-01-12T08:30:00"),
-    total: 523.99,
-    status: "new",
-  },
-]
+// --- CONFIGURARE API ---
+const API_BASE_URL = "http://localhost:8000/api/v2/ecommerce" // ⚠️ Verifica portul backend-ului tau (8000 implicit la Django)
 
-const channels = [
-  { id: "emag", name: "eMAG", logo: "eM" },
-  { id: "woocommerce", name: "WooCommerce", logo: "WC" },
-  { id: "trendyol", name: "Trendyol", logo: "TR" },
-]
+// ⚠️ TODO: In mod normal acest token vine din Login (localStorage/Context/Cookie)
+// Pentru moment, pune aici un token valid generat din Backend (Django Admin) pentru test
+const TEMPORARY_USER_TOKEN = "PUNE_AICI_TOKENUL_TAU_DIN_DJANGO_ADMIN" 
+
+// --- INTERFETE ---
+
+// Interfata Frontend (ce folosim in UI)
+export interface Order {
+  id: string
+  channel: string      
+  channelName: string  
+  channelLogo: string  
+  customer: string
+  customerEmail: string
+  date: Date
+  total: number
+  status: "new" | "processing" | "completed" | "canceled"
+}
+
+// --- LOGICA DE MAPARE ---
+// Aceasta functie transforma ce vine din API in ce intelege Tabelul
+const mapBackendToFrontend = (backendData: any): Order => {
+  // Mapping pentru statusuri (Backend -> Frontend)
+  // Presupunem ca backendul trimite statusuri gen "created", "shipped", etc.
+  let mappedStatus: Order['status'] = 'new';
+  const s = backendData.status?.toLowerCase() || '';
+  
+  if (s === 'created' || s === 'pending') mappedStatus = 'new';
+  else if (s === 'picking' || s === 'invoiced' || s === 'processing') mappedStatus = 'processing';
+  else if (s === 'shipped' || s === 'delivered') mappedStatus = 'completed';
+  else if (s === 'cancelled') mappedStatus = 'canceled';
+
+  // Determinare logo si nume platforma
+  const platform = backendData.platform_account?.platform || 'unknown';
+  let logo = "??";
+  let name = "Unknown";
+
+  if (platform === 'trendyol') { logo = "TR"; name = "Trendyol"; }
+  else if (platform === 'emag') { logo = "eM"; name = "eMAG"; }
+  else if (platform === 'woocommerce') { logo = "WC"; name = "WooCommerce"; }
+
+  return {
+    id: backendData.order_number || backendData.id?.toString(), // Folosim order_number daca exista, altfel ID intern
+    channel: platform,
+    channelName: name,
+    channelLogo: logo,
+    customer: backendData.customer_name || "Client Necunoscut", 
+    customerEmail: backendData.customer_email || "-",
+    date: new Date(backendData.created_at || backendData.date), // Backendul trimite string ISO
+    total: parseFloat(backendData.total_price || backendData.total || "0"),
+    status: mappedStatus
+  };
+}
 
 const statusConfig = {
   new: { label: "Nou", variant: "default" as const, color: "bg-blue-100 text-blue-800" },
@@ -129,14 +82,70 @@ const statusConfig = {
   canceled: { label: "Anulat", variant: "destructive" as const, color: "bg-red-100 text-red-800" },
 }
 
+const channels = [
+  { id: "emag", name: "eMAG", logo: "eM" },
+  { id: "woocommerce", name: "WooCommerce", logo: "WC" },
+  { id: "trendyol", name: "Trendyol", logo: "TR" },
+]
+
 export default function OrdersPage() {
+  const [orders, setOrders] = useState<Order[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
   const [activeTab, setActiveTab] = useState("all")
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedChannel, setSelectedChannel] = useState<string>("all")
   const [dateRange, setDateRange] = useState<DateRange | undefined>()
 
-  // Filter orders based on current filters
-  const filteredOrders = mockOrders.filter((order) => {
+  // --- FETCHING ---
+  const fetchOrders = async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      // 1. Apelam Endpoint-ul corect din documentatie
+      const response = await fetch(`${API_BASE_URL}/orders/`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          // 2. Adaugam Token-ul de autentificare obligatoriu
+          'Authorization': `Token ${TEMPORARY_USER_TOKEN}`
+        }
+      })
+      
+      if (response.status === 401) {
+        throw new Error('Autentificare eșuată. Verifică token-ul.')
+      }
+      
+      if (!response.ok) {
+        throw new Error(`Eroare server: ${response.status}`)
+      }
+
+      const data = await response.json()
+      
+      // 3. Transformam datele folosind mapper-ul
+      // Presupunem ca 'data' este o lista []. Daca API-ul returneaza { results: [] }, folosim data.results
+      const rawList = Array.isArray(data) ? data : (data.results || [])
+      const processedOrders = rawList.map(mapBackendToFrontend)
+
+      setOrders(processedOrders)
+    } catch (err: any) {
+      console.error("Fetch error:", err)
+      setError(err.message || "Nu am putut încărca comenzile.")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchOrders()
+    // Polling la fiecare 60 secunde pentru comenzi noi
+    const interval = setInterval(fetchOrders, 60000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // --- FILTRARE ---
+  const filteredOrders = orders.filter((order) => {
     const matchesStatus = activeTab === "all" || order.status === activeTab
     const matchesSearch =
       order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -148,19 +157,18 @@ export default function OrdersPage() {
       const orderDate = order.date
       matchesDate = orderDate >= dateRange.from && orderDate <= dateRange.to
     }
-
     return matchesStatus && matchesSearch && matchesChannel && matchesDate
   })
 
-  // Count orders by status
   const statusCounts = {
-    all: mockOrders.length,
-    new: mockOrders.filter((o) => o.status === "new").length,
-    processing: mockOrders.filter((o) => o.status === "processing").length,
-    completed: mockOrders.filter((o) => o.status === "completed").length,
-    canceled: mockOrders.filter((o) => o.status === "canceled").length,
+    all: orders.length,
+    new: orders.filter((o) => o.status === "new").length,
+    processing: orders.filter((o) => o.status === "processing").length,
+    completed: orders.filter((o) => o.status === "completed").length,
+    canceled: orders.filter((o) => o.status === "canceled").length,
   }
 
+  // --- UI ---
   return (
     <>
       <AppSidebar />
@@ -188,99 +196,62 @@ export default function OrdersPage() {
               <h1 className="text-2xl font-bold tracking-tight">Comenzi</h1>
               <p className="text-muted-foreground">Gestionați comenzile din toate canalurile de vânzare</p>
             </div>
+            <Button variant="outline" size="sm" onClick={fetchOrders} disabled={isLoading}>
+              <RefreshCcw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              Actualizare
+            </Button>
           </div>
+          
+          {/* Zona de Eroare */}
+          {error && (
+            <div className="bg-destructive/15 text-destructive px-4 py-3 rounded-md border border-destructive/20">
+              <strong>Eroare:</strong> {error}
+            </div>
+          )}
 
           <Card>
             <CardHeader>
               <CardTitle>Gestionarea Comenzilor</CardTitle>
-              <CardDescription>Vizualizați și procesați comenzile din toate piețele</CardDescription>
+              <CardDescription>Sincronizare automată cu platformele conectate.</CardDescription>
             </CardHeader>
             <CardContent>
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                 <TabsList className="grid w-full grid-cols-5">
-                  <TabsTrigger value="all" className="flex items-center gap-2">
-                    Toate
-                    <Badge variant="secondary" className="ml-1">
-                      {statusCounts.all}
-                    </Badge>
-                  </TabsTrigger>
-                  <TabsTrigger value="new" className="flex items-center gap-2">
-                    Noi
-                    <Badge variant="secondary" className="ml-1">
-                      {statusCounts.new}
-                    </Badge>
-                  </TabsTrigger>
-                  <TabsTrigger value="processing" className="flex items-center gap-2">
-                    Procesare
-                    <Badge variant="secondary" className="ml-1">
-                      {statusCounts.processing}
-                    </Badge>
-                  </TabsTrigger>
-                  <TabsTrigger value="completed" className="flex items-center gap-2">
-                    Finalizate
-                    <Badge variant="secondary" className="ml-1">
-                      {statusCounts.completed}
-                    </Badge>
-                  </TabsTrigger>
-                  <TabsTrigger value="canceled" className="flex items-center gap-2">
-                    Anulate
-                    <Badge variant="secondary" className="ml-1">
-                      {statusCounts.canceled}
-                    </Badge>
-                  </TabsTrigger>
+                  <TabsTrigger value="all">Toate <Badge variant="secondary" className="ml-1">{statusCounts.all}</Badge></TabsTrigger>
+                  <TabsTrigger value="new">Noi <Badge variant="secondary" className="ml-1">{statusCounts.new}</Badge></TabsTrigger>
+                  <TabsTrigger value="processing">Procesare <Badge variant="secondary" className="ml-1">{statusCounts.processing}</Badge></TabsTrigger>
+                  <TabsTrigger value="completed">Finalizate <Badge variant="secondary" className="ml-1">{statusCounts.completed}</Badge></TabsTrigger>
+                  <TabsTrigger value="canceled">Anulate <Badge variant="secondary" className="ml-1">{statusCounts.canceled}</Badge></TabsTrigger>
                 </TabsList>
 
                 <div className="flex items-center gap-4 my-6">
                   <div className="relative flex-1 max-w-sm">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
                     <Input
-                      placeholder="Căutați după ID comandă sau client..."
+                      placeholder="Căutați ID sau client..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       className="pl-10"
                     />
                   </div>
-
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button variant="outline" className="w-48 justify-start text-left font-normal bg-transparent">
                         <CalendarIcon className="mr-2 h-4 w-4" />
                         {dateRange?.from ? (
-                          dateRange.to ? (
-                            <>
-                              {format(dateRange.from, "LLL dd, y")} - {format(dateRange.to, "LLL dd, y")}
-                            </>
-                          ) : (
-                            format(dateRange.from, "LLL dd, y")
-                          )
-                        ) : (
-                          <span>Selectați interval de date</span>
-                        )}
+                          dateRange.to ? <>{format(dateRange.from, "dd.MM")} - {format(dateRange.to, "dd.MM")}</> : format(dateRange.from, "dd.MM.yyyy")
+                        ) : <span>Interval date</span>}
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        initialFocus
-                        mode="range"
-                        defaultMonth={dateRange?.from}
-                        selected={dateRange}
-                        onSelect={setDateRange}
-                        numberOfMonths={2}
-                      />
+                      <Calendar initialFocus mode="range" defaultMonth={dateRange?.from} selected={dateRange} onSelect={setDateRange} numberOfMonths={2} />
                     </PopoverContent>
                   </Popover>
-
                   <Select value={selectedChannel} onValueChange={setSelectedChannel}>
-                    <SelectTrigger className="w-48">
-                      <SelectValue placeholder="Filtrare pe canal" />
-                    </SelectTrigger>
+                    <SelectTrigger className="w-48"><SelectValue placeholder="Canal" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">Toate Canalurile</SelectItem>
-                      {channels.map((channel) => (
-                        <SelectItem key={channel.id} value={channel.id}>
-                          {channel.name}
-                        </SelectItem>
-                      ))}
+                      <SelectItem value="all">Toate</SelectItem>
+                      {channels.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -299,53 +270,56 @@ export default function OrdersPage() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {filteredOrders.map((order) => (
-                          <TableRow
-                            key={order.id}
-                            className="cursor-pointer hover:bg-muted/50"
-                            onClick={() => (window.location.href = `/orders/${order.id}`)}
-                          >
-                            <TableCell className="font-mono font-medium">{order.id}</TableCell>
-                            <TableCell>
-                              <div className="flex items-center gap-2">
-                                <div className="flex h-6 w-6 items-center justify-center rounded text-xs font-medium bg-primary text-primary-foreground">
-                                  {order.channelLogo}
+                        {isLoading && filteredOrders.length === 0 ? (
+                           <TableRow>
+                             <TableCell colSpan={6} className="h-24 text-center">
+                               <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                                 <Loader2 className="h-5 w-5 animate-spin" /> Se încarcă...
+                               </div>
+                             </TableCell>
+                           </TableRow>
+                        ) : filteredOrders.length > 0 ? (
+                          filteredOrders.map((order) => (
+                            <TableRow key={order.id} className="cursor-pointer hover:bg-muted/50" onClick={() => window.location.href = `/orders/${order.id}`}>
+                              <TableCell className="font-mono font-medium">{order.id}</TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  <div className="flex h-6 w-6 items-center justify-center rounded text-xs font-medium bg-primary text-primary-foreground">
+                                    {order.channelLogo}
+                                  </div>
+                                  <span className="text-sm hidden lg:inline">{order.channelName}</span>
                                 </div>
-                                <span className="text-sm">{order.channelName}</span>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <div>
-                                <div className="font-medium">{order.customer}</div>
-                                <div className="text-sm text-muted-foreground">{order.customerEmail}</div>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <div>
-                                <div className="font-medium">{format(order.date, "MMM dd, yyyy")}</div>
-                                <div className="text-sm text-muted-foreground">{format(order.date, "HH:mm")}</div>
-                              </div>
-                            </TableCell>
-                            <TableCell className="font-medium">{order.total.toFixed(2)} Lei</TableCell>
-                            <TableCell>
-                              <Badge
-                                variant={statusConfig[order.status as keyof typeof statusConfig].variant}
-                                className={statusConfig[order.status as keyof typeof statusConfig].color}
-                              >
-                                {statusConfig[order.status as keyof typeof statusConfig].label}
-                              </Badge>
-                            </TableCell>
-                          </TableRow>
-                        ))}
+                              </TableCell>
+                              <TableCell>
+                                <div>
+                                  <div className="font-medium">{order.customer}</div>
+                                  <div className="text-xs text-muted-foreground">{order.customerEmail}</div>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="text-sm">
+                                  <div>{format(order.date, "dd MMM yyyy")}</div>
+                                  <div className="text-xs text-muted-foreground">{format(order.date, "HH:mm")}</div>
+                                </div>
+                              </TableCell>
+                              <TableCell className="font-medium">{order.total.toFixed(2)} Lei</TableCell>
+                              <TableCell>
+                                <Badge variant={statusConfig[order.status].variant} className={statusConfig[order.status].color}>
+                                  {statusConfig[order.status].label}
+                                </Badge>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow>
+                             <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                                Nu am găsit comenzi.
+                             </TableCell>
+                           </TableRow>
+                        )}
                       </TableBody>
                     </Table>
                   </div>
-
-                  {filteredOrders.length === 0 && (
-                    <div className="text-center py-8 text-muted-foreground">
-                      Nu au fost găsite comenzi care să corespundă criteriilor.
-                    </div>
-                  )}
                 </TabsContent>
               </Tabs>
             </CardContent>
