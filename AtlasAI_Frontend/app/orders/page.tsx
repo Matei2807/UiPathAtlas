@@ -18,18 +18,13 @@ import { useState, useEffect } from "react"
 import { format } from "date-fns"
 import type { DateRange } from "react-day-picker"
 
-// --- CONFIGURARE API ---
-const API_BASE_URL = "http://localhost:8000/api/v2/ecommerce" // ⚠️ Verifica portul backend-ului tau (8000 implicit la Django)
-
-// ⚠️ TODO: In mod normal acest token vine din Login (localStorage/Context/Cookie)
-// Pentru moment, pune aici un token valid generat din Backend (Django Admin) pentru test
-const TEMPORARY_USER_TOKEN = "132c0560ba71c28a3a06c46ab01bf2cc73a02353" 
+const API_BASE_URL = "http://localhost:8000/api/v2/ecommerce" 
+const TEMPORARY_USER_TOKEN = "c8b8415c0a6634cf446a7b319750380beeea07b6" 
 
 // --- INTERFETE ---
-
-// Interfata Frontend (ce folosim in UI)
 export interface Order {
-  id: string
+  id: string       // ID-ul vizual (ex: 107...)
+  dbId: number     // ID-ul real din baza de date (pentru link)
   channel: string      
   channelName: string  
   channelLogo: string  
@@ -41,45 +36,49 @@ export interface Order {
 }
 
 // --- LOGICA DE MAPARE ---
-// Aceasta functie transforma ce vine din API in ce intelege Tabelul
-// --- LOGICA DE MAPARE ---
 const mapBackendToFrontend = (backendData: any): Order => {
-  // Mapping status
   let mappedStatus: Order['status'] = 'new';
   const s = backendData.status?.toLowerCase() || '';
   
-  if (s === 'created' || s === 'pending' || s === 'awaiting') mappedStatus = 'new';
-  else if (s === 'picking' || s === 'invoiced' || s === 'processing') mappedStatus = 'processing';
-  else if (s === 'shipped' || s === 'delivered') mappedStatus = 'completed';
-  else if (s === 'cancelled' || s === 'returned' || s === 'undelivered') mappedStatus = 'canceled';
+  if (['created', 'pending', 'new', 'waiting'].includes(s)) mappedStatus = 'new';
+  else if (['picking', 'invoiced', 'processing', 'shipped'].includes(s)) mappedStatus = 'processing';
+  else if (['delivered', 'completed'].includes(s)) mappedStatus = 'completed';
+  else if (['cancelled', 'canceled', 'returned'].includes(s)) mappedStatus = 'canceled';
 
-  // Mapping Platform Name/Logo
-  // The serializer sends 'platform_name' (e.g., "Trendyol RO Test"), 
-  // but we can also check the account platform type if you include it in the serializer,
-  // or infer it from the name. For now, let's map based on the name string.
-  const pName = (backendData.platform_name || '').toLowerCase();
-  let logo = "??";
-  let name = backendData.platform_name || "Unknown";
+  // --- LOGICA NOUA PENTRU SURSA ---
+  const orderNum = String(backendData.platform_order_number || "");
+  
+  // Default eMAG
+  let logo = "eM"; 
+  let name = "eMAG"; 
+  let channelKey = "emag";
 
-  if (pName.includes('trendyol')) { logo = "TR"; name = "Trendyol"; }
-  else if (pName.includes('emag')) { logo = "eM"; name = "eMAG"; }
-  else if (pName.includes('woo')) { logo = "WC"; name = "WooCommerce"; }
+  // REGULA NOUA: Daca incepe cu "10" SI are 11 cifre -> Trendyol
+  if (orderNum.startsWith("10") && orderNum.length === 11) {
+      logo = "TR";
+      name = "Trendyol";
+      channelKey = "trendyol";
+  } 
+  // Pastram logica pentru WooCommerce daca e cazul
+  else if (backendData.platform_account?.platform === 'woocommerce') {
+      logo = "WC";
+      name = "WooCommerce";
+      channelKey = "woocommerce";
+  }
+  // Orice altceva ramane eMAG (Default setat mai sus)
 
-  // Construct Full Name
   const firstName = backendData.customer_first_name || "";
   const lastName = backendData.customer_last_name || "";
-  const fullName = `${firstName} ${lastName}`.trim() || "Client Necunoscut";
+  const fullName = `${firstName} ${lastName}`.trim() || "Client";
 
-  // Handle Date Safely
-  // Backend sends: "2025-11-22T14:55:26..." (ISO String)
   const rawDate = backendData.order_date || backendData.created_at;
   const parsedDate = rawDate ? new Date(rawDate) : new Date();
 
   return {
-    // Backend sends 'platform_order_number'
-    id: backendData.platform_order_number || backendData.id?.toString() || "??", 
+    id: orderNum || backendData.id?.toString() || "-", 
+    dbId: backendData.id,
     
-    channel: name.toLowerCase(),
+    channel: channelKey,
     channelName: name,
     channelLogo: logo,
     
@@ -87,8 +86,6 @@ const mapBackendToFrontend = (backendData: any): Order => {
     customerEmail: backendData.customer_email || "-",
     
     date: parsedDate, 
-    
-    // Backend sends 'total_price'
     total: parseFloat(backendData.total_price || "0"),
     
     status: mappedStatus
@@ -118,33 +115,22 @@ export default function OrdersPage() {
   const [selectedChannel, setSelectedChannel] = useState<string>("all")
   const [dateRange, setDateRange] = useState<DateRange | undefined>()
 
-  // --- FETCHING ---
   const fetchOrders = async () => {
     setIsLoading(true)
     setError(null)
     try {
-      // 1. Apelam Endpoint-ul corect din documentatie
       const response = await fetch(`${API_BASE_URL}/orders/`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-          // 2. Adaugam Token-ul de autentificare obligatoriu
           'Authorization': `Token ${TEMPORARY_USER_TOKEN}`
         }
       })
       
-      if (response.status === 401) {
-        throw new Error('Autentificare eșuată. Verifică token-ul.')
-      }
-      
-      if (!response.ok) {
-        throw new Error(`Eroare server: ${response.status}`)
-      }
+      if (response.status === 401) throw new Error('Autentificare eșuată.')
+      if (!response.ok) throw new Error(`Eroare server: ${response.status}`)
 
       const data = await response.json()
-      
-      // 3. Transformam datele folosind mapper-ul
-      // Presupunem ca 'data' este o lista []. Daca API-ul returneaza { results: [] }, folosim data.results
       const rawList = Array.isArray(data) ? data : (data.results || [])
       const processedOrders = rawList.map(mapBackendToFrontend)
 
@@ -159,12 +145,10 @@ export default function OrdersPage() {
 
   useEffect(() => {
     fetchOrders()
-    // Polling la fiecare 60 secunde pentru comenzi noi
     const interval = setInterval(fetchOrders, 60000)
     return () => clearInterval(interval)
   }, [])
 
-  // --- FILTRARE ---
   const filteredOrders = orders.filter((order) => {
     const matchesStatus = activeTab === "all" || order.status === activeTab
     const matchesSearch =
@@ -188,7 +172,6 @@ export default function OrdersPage() {
     canceled: orders.filter((o) => o.status === "canceled").length,
   }
 
-  // --- UI ---
   return (
     <>
       <AppSidebar />
@@ -222,7 +205,6 @@ export default function OrdersPage() {
             </Button>
           </div>
           
-          {/* Zona de Eroare */}
           {error && (
             <div className="bg-destructive/15 text-destructive px-4 py-3 rounded-md border border-destructive/20">
               <strong>Eroare:</strong> {error}
@@ -300,7 +282,11 @@ export default function OrdersPage() {
                            </TableRow>
                         ) : filteredOrders.length > 0 ? (
                           filteredOrders.map((order) => (
-                            <TableRow key={order.id} className="cursor-pointer hover:bg-muted/50" onClick={() => window.location.href = `/orders/${order.id}`}>
+                            <TableRow 
+                                key={order.dbId} 
+                                className="cursor-pointer hover:bg-muted/50" 
+                                onClick={() => window.location.href = `/orders/${order.dbId}`}
+                            >
                               <TableCell className="font-mono font-medium">{order.id}</TableCell>
                               <TableCell>
                                 <div className="flex items-center gap-2">

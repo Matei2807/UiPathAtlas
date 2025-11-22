@@ -1,6 +1,7 @@
 "use client"
 
 import type React from "react"
+import { useState } from "react"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
@@ -26,7 +27,12 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Loader2, Upload, Eye, FileText, CheckCircle2, AlertCircle } from "lucide-react"
-import { useState } from "react"
+
+// --- CONFIGURARE API ---
+// Înlocuiește cu URL-ul real sau process.env.NEXT_PUBLIC_API_BASE_URL
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
+
+const TEMPORARY_USER_TOKEN = "98f91c94d678d96df72f2ff5f04683b18c5dc0c3" 
 
 interface Invoice {
   id: string
@@ -48,14 +54,7 @@ export default function InvoicesPage() {
       fileType: "pdf",
       productsUpdated: 3,
     },
-    {
-      id: "INV-002",
-      fileName: "Invoice_2024_01_14.jpg",
-      uploadDate: new Date("2024-01-14T14:20:00"),
-      status: "completed",
-      fileType: "jpg",
-      productsUpdated: 5,
-    },
+    // ... alte date mock
   ])
 
   const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -72,41 +71,97 @@ export default function InvoicesPage() {
     setUploadedFile(file)
   }
 
+  // --- LOGICA DE UPLOAD INTEGRATĂ ---
+  // --- LOGICA DE UPLOAD INTEGRATĂ ---
   const handleUpload = async () => {
     if (!uploadedFile) return
 
     setIsUploading(true)
+    
+    const tempId = `INV-${Date.now()}`
     const fileType = uploadedFile.type === "application/pdf" ? "pdf" : "jpg"
+    
     const newInvoice: Invoice = {
-      id: `INV-${Date.now()}`,
+      id: tempId,
       fileName: uploadedFile.name,
       uploadDate: new Date(),
       status: "uploading",
       fileType: fileType as "pdf" | "jpg",
     }
 
-    setInvoices([newInvoice, ...invoices])
+    setInvoices((prev) => [newInvoice, ...prev])
 
-    // Simulate upload and processing
-    setTimeout(() => {
-      setInvoices((prev) => prev.map((inv) => (inv.id === newInvoice.id ? { ...inv, status: "processing" } : inv)))
-    }, 1500)
+    const formData = new FormData()
+    formData.append("file", uploadedFile)
 
-    setTimeout(() => {
+    try {
+      const token = localStorage.getItem("accessToken") 
+
+      // 1. CORECȚIE URL: Adăugăm '/process/' la final
+      const response = await fetch(`${API_BASE_URL}/api/v2/ecommerce/invoices/process/`, {
+        method: "POST",
+        headers: {
+          // 2. Adaugam Token-ul de autentificare obligatoriu
+          'Authorization': `Token ${TEMPORARY_USER_TOKEN}`
+        },
+        body: formData,
+      })
+
+      // 2. DEBUG AVANSAT: Verificăm dacă răspunsul e JSON valid
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        // Dacă serverul ne-a dat HTML (eroare 500 galbenă), îl citim ca text să vedem ce zice
+        const textError = await response.text();
+        console.error("Serverul a returnat HTML (probabil eroare 500):", textError);
+        throw new Error("Eroare de server. Verificați consola browserului.");
+      }
+
+      const data = await response.json()
+
+      console.log("Răspuns API:", data);
+
+      if (!response.ok) {
+        throw new Error(data.error || "Eroare la procesarea facturii")
+      }
+
+      // 3. MAPARE DATE: Backend-ul returnează acum o structură complexă
+      // data = { status: "success", data: { summary: { total_processed: 5 }, new_products: [], updated_products: [] } }
+      const count = data.data?.summary?.total_processed || 0;
+
       setInvoices((prev) =>
         prev.map((inv) =>
-          inv.id === newInvoice.id
-            ? { ...inv, status: "completed", productsUpdated: Math.floor(Math.random() * 8) + 1 }
-            : inv,
-        ),
+          inv.id === tempId
+            ? {
+                ...inv,
+                status: "completed",
+                productsUpdated: count, 
+              }
+            : inv
+        )
       )
-      setIsUploading(false)
+
       setShowSuccess(true)
       setUploadedFile(null)
-
-      // Hide success message after 4 seconds
       setTimeout(() => setShowSuccess(false), 4000)
-    }, 3000)
+
+    } catch (error: any) {
+      console.error("Upload failed:", error)
+      
+      setInvoices((prev) =>
+        prev.map((inv) =>
+          inv.id === tempId
+            ? {
+                ...inv,
+                status: "error",
+                error: error.message || "Eroare necunoscută",
+              }
+            : inv
+        )
+      )
+      // alert(`Eroare la încărcare: ${error.message}`) // Opțional, poți scoate alerta dacă afișezi eroarea în tabel
+    } finally {
+      setIsUploading(false)
+    }
   }
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -214,6 +269,7 @@ export default function InvoicesPage() {
                     }}
                     variant="outline"
                     className="flex-1"
+                    disabled={isUploading}
                   >
                     Anulare
                   </Button>
@@ -221,7 +277,7 @@ export default function InvoicesPage() {
                     {isUploading ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Se încarcă...
+                        Se procesează...
                       </>
                     ) : (
                       "Încarcă"
@@ -238,7 +294,7 @@ export default function InvoicesPage() {
                 <div className="flex items-center gap-3">
                   <CheckCircle2 className="h-5 w-5 text-green-600" />
                   <div>
-                    <p className="font-medium text-green-900">Factură încărcată cu succes!</p>
+                    <p className="font-medium text-green-900">Factură procesată cu succes!</p>
                     <p className="text-sm text-green-700">Datele au fost extrase și stocurile au fost actualizate.</p>
                   </div>
                 </div>
@@ -260,14 +316,21 @@ export default function InvoicesPage() {
                       <TableHead>TIP</TableHead>
                       <TableHead>DATA ÎNCĂRCĂRII</TableHead>
                       <TableHead>STATUS</TableHead>
-                      <TableHead>PRODUSE ACTUALIZATE</TableHead>
+                      <TableHead>PRODUSE PROCESATE</TableHead>
                       <TableHead>ACȚIUNI</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {invoices.map((invoice) => (
                       <TableRow key={invoice.id}>
-                        <TableCell className="font-medium">{invoice.fileName}</TableCell>
+                        <TableCell className="font-medium">
+                            <div className="flex flex-col">
+                                <span>{invoice.fileName}</span>
+                                {invoice.error && (
+                                    <span className="text-xs text-red-500 truncate max-w-[200px]">{invoice.error}</span>
+                                )}
+                            </div>
+                        </TableCell>
                         <TableCell>
                           <Badge variant="outline">{invoice.fileType.toUpperCase()}</Badge>
                         </TableCell>

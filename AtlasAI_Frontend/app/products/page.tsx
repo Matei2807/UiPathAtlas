@@ -18,108 +18,98 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Search, RefreshCw, Plus } from "lucide-react"
-import { useState } from "react"
+import { Search, RefreshCw, Plus, Loader2, Layers, Package } from "lucide-react"
+import { useState, useEffect } from "react"
+import Link from "next/link"
 
-const mockProducts = [
-  {
-    id: "1",
-    sku: "CHT-001",
-    name: "Detergent Chanteclair Bicarbonat, 600 ml",
-    stock: 45,
-    basePrice: 24.99,
-    channels: {
-      emag: { active: true, mapped: true },
-      woocommerce: { active: true, mapped: true },
-      trendyol: { active: true, mapped: true },
-    },
-  },
-  {
-    id: "2",
-    sku: "CHT-002",
-    name: "Degresant Chanteclair Color, 1575 ml",
-    stock: 32,
-    basePrice: 18.5,
-    channels: {
-      emag: { active: true, mapped: true },
-      woocommerce: { active: false, mapped: false },
-      trendyol: { active: true, mapped: true },
-    },
-  },
-  {
-    id: "3",
-    sku: "CHT-003",
-    name: "Balsam rufe albe Chanteclair, 1800 ml",
-    stock: 67,
-    basePrice: 22.75,
-    channels: {
-      emag: { active: true, mapped: true },
-      woocommerce: { active: true, mapped: true },
-      trendyol: { active: true, mapped: true },
-    },
-  },
-  {
-    id: "4",
-    sku: "CHT-004",
-    name: "Detergent pardoseli Chanteclair Mosc alb, 750 ml",
-    stock: 23,
-    basePrice: 15.99,
-    channels: {
-      emag: { active: false, mapped: false },
-      woocommerce: { active: true, mapped: true },
-      trendyol: { active: true, mapped: true },
-    },
-  },
-  {
-    id: "5",
-    sku: "CHT-005",
-    name: "Degresant vase Chanteclair, cu rodie, 500 ml",
-    stock: 78,
-    basePrice: 13.25,
-    channels: {
-      emag: { active: true, mapped: true },
-      woocommerce: { active: true, mapped: true },
-      trendyol: { active: false, mapped: false },
-    },
-  },
-]
+// --- CONFIGURARE API ---
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
+const TEMPORARY_USER_TOKEN = "98f91c94d678d96df72f2ff5f04683b18c5dc0c3" // În producție ia-l din AuthContext
 
-const channels = [
+// Interfața Backend Django
+interface ProductData {
+  id: number
+  sku: string
+  product_name: string
+  brand: string
+  stock: number
+  price: string // Vine ca string din Django Decimal
+  // Adăugăm un flag opțional pentru viitor când backend-ul va suporta bundle-uri explicit
+  is_bundle?: boolean 
+  channels: {
+    emag: { active: boolean; mapped: boolean }
+    trendyol: { active: boolean; mapped: boolean }
+  }
+}
+
+const channelsList = [
   { id: "emag", name: "eMAG", logo: "eM" },
-  { id: "woocommerce", name: "WooCommerce", logo: "WC" },
   { id: "trendyol", name: "Trendyol", logo: "TR" },
 ]
 
 export default function ProductsPage() {
+  const [products, setProducts] = useState<ProductData[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedChannel, setSelectedChannel] = useState<string>("all")
-  const [selectedProducts, setSelectedProducts] = useState<string[]>([])
+  const [selectedProducts, setSelectedProducts] = useState<number[]>([])
 
-  const filteredProducts = mockProducts.filter((product) => {
+  // --- FETCH DATA ---
+  const fetchProducts = async () => {
+    setIsLoading(true)
+    try {
+      const token = localStorage.getItem("accessToken") || TEMPORARY_USER_TOKEN
+      
+      const response = await fetch(`${API_BASE_URL}/api/v2/ecommerce/products/`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          'Authorization': `Token ${token}`
+        },
+      })
+
+      if (!response.ok) throw new Error("Eroare la preluarea produselor")
+
+      const data = await response.json()
+      // Suport pentru paginare Django (results) sau listă directă
+      const results = Array.isArray(data) ? data : data.results || []
+      setProducts(results)
+      
+    } catch (error) {
+      console.error("Error fetching products:", error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchProducts()
+  }, [])
+
+  // --- FILTRARE ---
+  const filteredProducts = products.filter((product) => {
     const matchesSearch =
-      product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      product.sku.toLowerCase().includes(searchTerm.toLowerCase())
+      (product.product_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (product.sku || "").toLowerCase().includes(searchTerm.toLowerCase())
 
     const matchesChannel =
-      selectedChannel === "all" || product.channels[selectedChannel as keyof typeof product.channels]?.active
+      selectedChannel === "all" || 
+      // @ts-ignore - Acces dinamic sigur
+      product.channels?.[selectedChannel]?.mapped
 
     return matchesSearch && matchesChannel
   })
 
+  // --- SELECȚIE ---
   const handleSelectAll = (checked: boolean) => {
-    if (checked) {
-      setSelectedProducts(filteredProducts.map((p) => p.id))
-    } else {
-      setSelectedProducts([])
-    }
+    if (checked) setSelectedProducts(filteredProducts.map((p) => p.id))
+    else setSelectedProducts([])
   }
 
-  const handleSelectProduct = (productId: string, checked: boolean) => {
-    if (checked) {
-      setSelectedProducts([...selectedProducts, productId])
-    } else {
-      setSelectedProducts(selectedProducts.filter((id) => id !== productId))
-    }
+  const handleSelectProduct = (productId: number, checked: boolean) => {
+    if (checked) setSelectedProducts([...selectedProducts, productId])
+    else setSelectedProducts(selectedProducts.filter((id) => id !== productId))
   }
 
   return (
@@ -147,11 +137,17 @@ export default function ProductsPage() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold tracking-tight">Produse</h1>
-              <p className="text-muted-foreground">Gestionați catalogul de produse și maparea pe canale</p>
+              <p className="text-muted-foreground">
+                Gestionați catalogul de produse și maparea pe canale
+              </p>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm">
-                <RefreshCw className="h-4 w-4 mr-2" />
+              <Button variant="outline" size="sm" onClick={fetchProducts} disabled={isLoading}>
+                {isLoading ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
                 Sincronizare Depozit
               </Button>
               <Button size="sm">
@@ -164,7 +160,9 @@ export default function ProductsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Catalog Produse</CardTitle>
-              <CardDescription>Vizualizați și gestionați produsele din toate canalurile de vânzare</CardDescription>
+              <CardDescription>
+                Vizualizați {products.length} produse din depozitul PIM
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="flex items-center gap-4 mb-6">
@@ -183,7 +181,7 @@ export default function ProductsPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Toate Canalurile</SelectItem>
-                    {channels.map((channel) => (
+                    {channelsList.map((channel) => (
                       <SelectItem key={channel.id} value={channel.id}>
                         {channel.name}
                       </SelectItem>
@@ -198,10 +196,14 @@ export default function ProductsPage() {
                     <TableRow>
                       <TableHead className="w-12">
                         <Checkbox
-                          checked={selectedProducts.length === filteredProducts.length && filteredProducts.length > 0}
+                          checked={
+                            selectedProducts.length === filteredProducts.length &&
+                            filteredProducts.length > 0
+                          }
                           onCheckedChange={handleSelectAll}
                         />
                       </TableHead>
+                      <TableHead>TIP</TableHead>
                       <TableHead>SKU LOCAL</TableHead>
                       <TableHead>NUME PRODUS</TableHead>
                       <TableHead>STOC</TableHead>
@@ -210,58 +212,100 @@ export default function ProductsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredProducts.map((product) => (
-                      <TableRow
-                        key={product.id}
-                        className="cursor-pointer hover:bg-muted/50"
-                        onClick={() => (window.location.href = `/products/${product.id}`)}
-                      >
-                        <TableCell onClick={(e) => e.stopPropagation()}>
-                          <Checkbox
-                            checked={selectedProducts.includes(product.id)}
-                            onCheckedChange={(checked) => handleSelectProduct(product.id, checked as boolean)}
-                          />
-                        </TableCell>
-                        <TableCell className="font-mono font-medium">{product.sku}</TableCell>
-                        <TableCell className="font-medium">{product.name}</TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={product.stock > 0 ? "default" : "destructive"}
-                            className={product.stock > 0 ? "bg-green-100 text-green-800 hover:bg-green-100" : ""}
-                          >
-                            {product.stock}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="font-medium">{product.basePrice.toFixed(2)} Lei</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            {channels.map((channel) => {
-                              const channelData = product.channels[channel.id as keyof typeof product.channels]
-                              return (
-                                <div
-                                  key={channel.id}
-                                  className={`flex h-6 w-6 items-center justify-center rounded text-xs font-medium border ${
-                                    channelData?.active
-                                      ? "bg-primary text-primary-foreground border-primary"
-                                      : "bg-muted text-muted-foreground border-border"
-                                  }`}
-                                  title={`${channel.name} - ${channelData?.active ? "Activ" : "Inactiv"}`}
-                                >
-                                  {channel.logo}
-                                </div>
-                              )
-                            })}
-                          </div>
+                    {isLoading && products.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-8">
+                          <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
+                          <span className="sr-only">Se încarcă...</span>
                         </TableCell>
                       </TableRow>
-                    ))}
+                    ) : (
+                      filteredProducts.map((product) => (
+                        <TableRow
+                          key={product.id}
+                          className="cursor-pointer hover:bg-muted/50 transition-colors"
+                        >
+                          <TableCell onClick={(e) => e.stopPropagation()}>
+                            <Checkbox
+                              checked={selectedProducts.includes(product.id)}
+                              onCheckedChange={(checked) =>
+                                handleSelectProduct(product.id, checked as boolean)
+                              }
+                            />
+                          </TableCell>
+                          <TableCell>
+                             {/* Detecție simplă Bundle după SKU sau flag */}
+                             {(product.sku.startsWith("SET") || product.sku.startsWith("BUNDLE") || product.is_bundle) ? (
+                                <Badge variant="secondary" className="gap-1 bg-purple-100 text-purple-800 hover:bg-purple-200 border-purple-200">
+                                    <Layers className="h-3 w-3"/> Bundle
+                                </Badge>
+                             ) : (
+                                <Badge variant="outline" className="gap-1 text-muted-foreground border-dashed">
+                                    <Package className="h-3 w-3"/> Produs
+                                </Badge>
+                             )}
+                          </TableCell>
+                          <TableCell className="font-mono font-medium text-xs">
+                            {product.sku}
+                          </TableCell>
+                          <TableCell className="font-medium max-w-[300px] truncate" title={product.product_name}>
+                            {/* Link către pagina de editare */}
+                            <Link href={`/products/${product.id}`} className="hover:underline text-primary">
+                                {product.product_name}
+                            </Link>
+                            <div className="text-xs text-muted-foreground">{product.brand}</div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant={product.stock > 0 ? "default" : "destructive"}
+                              className={
+                                product.stock > 0
+                                  ? "bg-green-100 text-green-800 hover:bg-green-100 border-green-200"
+                                  : ""
+                              }
+                            >
+                              {product.stock} buc
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            {parseFloat(product.price).toFixed(2)} Lei
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              {channelsList.map((channel) => {
+                                // @ts-ignore
+                                const channelData = product.channels[channel.id]
+                                return (
+                                  <div
+                                    key={channel.id}
+                                    className={`flex h-6 w-6 items-center justify-center rounded text-xs font-medium border transition-colors ${
+                                      channelData?.active
+                                        ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                        : channelData?.mapped 
+                                            ? "bg-blue-50 text-blue-600 border-blue-200"
+                                            : "bg-muted text-muted-foreground border-border opacity-50"
+                                    }`}
+                                    title={`${channel.name} - ${
+                                      channelData?.active ? "Activ" : channelData?.mapped ? "Mapat (Inactiv)" : "Nemapata"
+                                    }`}
+                                  >
+                                    {channel.logo}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
                   </TableBody>
                 </Table>
               </div>
 
-              {filteredProducts.length === 0 && (
-                <div className="text-center py-8 text-muted-foreground">
-                  Nu au fost găsite produse care să corespundă criteriilor.
+              {!isLoading && filteredProducts.length === 0 && (
+                <div className="text-center py-12 text-muted-foreground">
+                  <p className="text-lg font-medium">Nu am găsit produse.</p>
+                  <p className="text-sm">Încercați să încărcați o factură sau să schimbați filtrele.</p>
                 </div>
               )}
             </CardContent>

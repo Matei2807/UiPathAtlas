@@ -76,6 +76,8 @@ def cerceteaza_produs(nume_produs: str):
     try:
         query = f"{nume_produs} descriere pret magazin online"
         rezultate_web = search.invoke(query)
+
+        print(f"Astea sunt {rezultate_web}")
         
         prompt = ChatPromptTemplate.from_messages([
             ("system", "Ești un expert copywriter. Pe baza rezultatelor web, scrie o descriere atractivă în Română pentru produs."),

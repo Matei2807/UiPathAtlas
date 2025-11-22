@@ -15,63 +15,129 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, FileText, Truck, CheckCircle } from "lucide-react"
+import { ArrowLeft, FileText, Truck, CheckCircle, Package, AlertCircle, Loader2 } from "lucide-react"
 import Link from "next/link"
-import { useParams } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import { format } from "date-fns"
+import { useState, useEffect } from "react"
+import { toast } from "sonner" // Optional: pentru notificari, sau foloseste alert simplu
 
-// Mock order data
-const mockOrderDetails = {
-  id: "CMD-001",
-  channel: "emag",
-  channelName: "eMAG",
-  channelLogo: "eM",
-  date: new Date("2024-01-15T10:30:00"),
-  status: "new",
-  total: 98.5,
+// --- CONFIGURARE API ---
+const API_BASE_URL = "http://localhost:8000/api/v2/ecommerce"
+// Folosim token-ul din contextul anterior (sau din env in mod ideal)
+const TEMPORARY_USER_TOKEN = "c8b8415c0a6634cf446a7b319750380beeea07b6"
+
+// --- INTERFEȚE UI ---
+interface OrderItem {
+  sku: string
+  name: string
+  quantity: number
+  unitPrice: number
+  subtotal: number
+}
+
+interface OrderDetail {
+  id: string // ID-ul intern sau platform number
+  dbId: number // ID-ul de baza de date (pentru apeluri API)
+  channel: string
+  channelName: string
+  channelLogo: string
+  date: Date
+  status: "new" | "processing" | "completed" | "canceled"
+  total: number
+  subtotal: number
+  shipping: number
+  tax: number
+  currency: string
   customer: {
-    name: "Andrei Ionescu",
-    email: "andrei.ionescu@email.com",
-    phone: "+40 123 456 789",
-  },
+    name: string
+    email: string
+    phone: string
+  }
   shippingAddress: {
-    street: "Strada Victoriei 123",
-    city: "București",
-    postalCode: "010065",
-    country: "România",
-  },
+    fullAddress: string
+    city: string
+    country: string
+  }
   billingAddress: {
-    street: "Strada Victoriei 123",
-    city: "București",
-    postalCode: "010065",
-    country: "România",
-  },
-  items: [
-    {
-      sku: "CHT-001",
-      name: "Detergent Chanteclair Bicarbonat 600ml",
-      quantity: 1,
-      unitPrice: 24.99,
-      subtotal: 24.99,
+    fullAddress: string
+    city: string
+    country: string
+  }
+  items: OrderItem[]
+}
+
+// --- LOGICA DE MAPARE (Backend -> Frontend Detail) ---
+const mapBackendToDetail = (data: any): OrderDetail => {
+  // 1. Status Mapping
+  let mappedStatus: OrderDetail['status'] = 'new';
+  const s = data.status?.toLowerCase() || '';
+  if (['created', 'pending', 'new', 'waiting'].includes(s)) mappedStatus = 'new';
+  else if (['picking', 'invoiced', 'processing', 'shipped'].includes(s)) mappedStatus = 'processing';
+  else if (['delivered', 'completed'].includes(s)) mappedStatus = 'completed';
+  else if (['cancelled', 'canceled', 'returned'].includes(s)) mappedStatus = 'canceled';
+
+  // 2. Platform Info
+  const pName = (data.platform_account?.name || data.platform_name || '').toLowerCase();
+  let logo = "??";
+  let name = data.platform_account?.name || "Unknown Platform";
+  if (pName.includes('trendyol')) { logo = "TR"; name = "Trendyol"; }
+  else if (pName.includes('emag')) { logo = "eM"; name = "eMAG"; }
+  else if (pName.includes('woo')) { logo = "WC"; name = "WooCommerce"; }
+
+  // 3. Address Parsing (Backend sends JSON usually)
+  // Trendyol/Emag JSON structure varies, so we try to extract common fields safely
+  const ship = data.shipping_address || {};
+  const bill = data.invoice_address || {};
+
+  const formatAddress = (addr: any) => {
+    // Incearca diverse chei posibile din JSON-ul platformei
+    const street = addr.address1 || addr.addressLine1 || addr.fullAddress || addr.address || "-";
+    const city = addr.city || addr.town || "-";
+    const country = addr.countryCode || addr.country || "-";
+    return { fullAddress: street, city, country };
+  };
+
+  const shippingAddr = formatAddress(ship);
+  const billingAddr = formatAddress(bill);
+
+  // 4. Items Mapping
+  const items: OrderItem[] = (data.items || []).map((item: any) => ({
+    sku: item.sku || "N/A",
+    name: item.product_name || "Produs necunoscut",
+    quantity: item.quantity || 0,
+    unitPrice: parseFloat(item.price || "0"),
+    subtotal: (item.quantity || 0) * parseFloat(item.price || "0")
+  }));
+
+  // 5. Totals Calculation
+  const total = parseFloat(data.total_price || "0");
+  // Daca backendul nu trimite subtotal/tax separat, le estimam din iteme
+  const calculatedSubtotal = items.reduce((acc, item) => acc + item.subtotal, 0);
+  const estimatedShipping = total - calculatedSubtotal > 0 ? total - calculatedSubtotal : 0; 
+
+  return {
+    id: data.platform_order_number || data.id?.toString(),
+    dbId: data.id, // ID-ul necesar pentru actiuni API (/orders/{id}/...)
+    channel: name.toLowerCase(),
+    channelName: name,
+    channelLogo: logo,
+    date: new Date(data.order_date || data.created_at || new Date()),
+    status: mappedStatus,
+    total: total,
+    subtotal: calculatedSubtotal,
+    shipping: estimatedShipping, // Sau data.shipping_total daca exista in API
+    tax: 0, // Sau data.tax_total daca exista
+    currency: data.currency || "RON",
+    customer: {
+      name: `${data.customer_first_name || ''} ${data.customer_last_name || ''}`.trim() || "Client Necunoscut",
+      email: data.customer_email || "-",
+      phone: ship.phone || ship.phoneNumber || "-"
     },
-    {
-      sku: "CHT-005",
-      name: "Degresant vase Chanteclair cu rodie 500ml",
-      quantity: 2,
-      unitPrice: 13.25,
-      subtotal: 26.5,
-    },
-    {
-      sku: "CHT-003",
-      name: "Balsam rufe albe Chanteclair 1800ml",
-      quantity: 1,
-      unitPrice: 22.75,
-      subtotal: 22.75,
-    },
-  ],
-  subtotal: 74.24,
-  shipping: 15.99,
-  tax: 8.27,
+    shippingAddress: shippingAddr,
+    billingAddress: billingAddr,
+    items: items
+  };
 }
 
 const statusConfig = {
@@ -83,7 +149,105 @@ const statusConfig = {
 
 export default function OrderDetailsPage() {
   const params = useParams()
-  const order = mockOrderDetails
+  const router = useRouter()
+  const orderId = params.id as string // Acesta trebuie sa fie ID-ul din baza de date (PK)
+
+  const [order, setOrder] = useState<OrderDetail | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [actionLoading, setActionLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // --- FETCH ORDER DETAILS ---
+  const fetchOrderDetails = async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      // Endpoint: GET /api/v2/ecommerce/orders/{id}/
+      const response = await fetch(`${API_BASE_URL}/orders/${orderId}/`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Token ${TEMPORARY_USER_TOKEN}`
+        }
+      })
+
+      if (!response.ok) {
+        if (response.status === 404) throw new Error("Comanda nu a fost găsită. Verifică dacă ID-ul este corect.")
+        throw new Error(`Eroare server: ${response.status}`)
+      }
+
+      const data = await response.json()
+      const mappedData = mapBackendToDetail(data)
+      setOrder(mappedData)
+
+    } catch (err: any) {
+      console.error("Fetch detail error:", err)
+      setError(err.message || "Eroare la încărcarea comenzii.")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (orderId) {
+      fetchOrderDetails()
+    }
+  }, [orderId])
+
+  // --- ACTIONS (Mark Picking, Invoice, etc) ---
+  const handleOrderAction = async (action: 'mark_picking' | 'mark_invoiced') => {
+    if (!order) return;
+    setActionLoading(true)
+    
+    try {
+      // Exemplu de body, pentru facturare poate fi nevoie de invoice number
+      const body = action === 'mark_invoiced' ? { invoice_number: `INV-${order.id}` } : {};
+
+      const response = await fetch(`${API_BASE_URL}/orders/${order.dbId}/${action}/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Token ${TEMPORARY_USER_TOKEN}`
+        },
+        body: JSON.stringify(body)
+      })
+
+      if (!response.ok) throw new Error("Acțiunea a eșuat.")
+      
+      // Reîncărcăm comanda pentru a vedea noul status
+      await fetchOrderDetails()
+      alert("Status actualizat cu succes!") // Sau foloseste un toast
+
+    } catch (err: any) {
+      alert(`Eroare: ${err.message}`)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  // --- RENDERING ---
+
+  if (isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <span className="ml-2 text-muted-foreground">Se încarcă detaliile...</span>
+      </div>
+    )
+  }
+
+  if (error || !order) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen gap-4">
+        <AlertCircle className="h-10 w-10 text-destructive" />
+        <h2 className="text-xl font-semibold">Nu am putut încărca comanda</h2>
+        <p className="text-muted-foreground">{error}</p>
+        <Link href="/orders">
+          <Button variant="outline">Înapoi la Listă</Button>
+        </Link>
+      </div>
+    )
+  }
 
   return (
     <>
@@ -111,184 +275,187 @@ export default function OrderDetailsPage() {
           </div>
         </header>
         <div className="flex flex-1 flex-col gap-4 p-4">
-          <div className="flex items-center justify-between">
+          
+          {/* Header Zona Titlu */}
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <Link href="/orders">
                 <Button variant="outline" size="sm">
                   <ArrowLeft className="h-4 w-4 mr-2" />
-                  Înapoi la Comenzi
+                  Înapoi
                 </Button>
               </Link>
               <div>
-                <h1 className="text-2xl font-bold tracking-tight">Detalii Comandă</h1>
-                <p className="text-muted-foreground">Vizualizați și gestionați informații comandă</p>
+                <h1 className="text-2xl font-bold tracking-tight">Comanda #{order.id}</h1>
+                <p className="text-muted-foreground">
+                   Plasată pe {format(order.date, "dd MMM yyyy, HH:mm")} prin {order.channelName}
+                </p>
               </div>
+            </div>
+            
+            {/* Status Badge Mare */}
+            <div className="flex items-center gap-2">
+                 Status curent: 
+                 <Badge
+                    variant={statusConfig[order.status].variant}
+                    className={`${statusConfig[order.status].color} text-base px-4 py-1`}
+                  >
+                    {statusConfig[order.status].label}
+                  </Badge>
             </div>
           </div>
 
-          <div className="grid gap-6 md:grid-cols-2">
-            {/* Order Summary */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Rezumat Comandă</CardTitle>
-                <CardDescription>Informații de bază despre comandă</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">ID Comandă:</span>
-                  <span className="font-mono">{order.id}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Sursă:</span>
-                  <div className="flex items-center gap-2">
-                    <div className="flex h-5 w-5 items-center justify-center rounded text-xs font-medium bg-primary text-primary-foreground">
-                      {order.channelLogo}
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            
+            {/* Column 1: Order Info & Items (Spans 2 cols on LG) */}
+            <div className="md:col-span-2 space-y-6">
+                
+                {/* Products Table */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Articole Comandă</CardTitle>
+                    <CardDescription>{order.items.length} produse în coș</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>SKU</TableHead>
+                            <TableHead>NUME PRODUS</TableHead>
+                            <TableHead className="text-right">CANT.</TableHead>
+                            <TableHead className="text-right">PREȚ</TableHead>
+                            <TableHead className="text-right">TOTAL</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {order.items.map((item, index) => (
+                            <TableRow key={index}>
+                              <TableCell className="font-mono text-sm">{item.sku}</TableCell>
+                              <TableCell className="font-medium text-sm">{item.name}</TableCell>
+                              <TableCell className="text-right">{item.quantity}</TableCell>
+                              <TableCell className="text-right">{item.unitPrice.toFixed(2)} {order.currency}</TableCell>
+                              <TableCell className="text-right font-bold">{item.subtotal.toFixed(2)} {order.currency}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
                     </div>
-                    <span>{order.channelName}</span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Data:</span>
-                  <div className="text-right">
-                    <div>{format(order.date, "MMM dd, yyyy")}</div>
-                    <div className="text-sm text-muted-foreground">{format(order.date, "HH:mm")}</div>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Status:</span>
-                  <Badge
-                    variant={statusConfig[order.status as keyof typeof statusConfig].variant}
-                    className={statusConfig[order.status as keyof typeof statusConfig].color}
-                  >
-                    {statusConfig[order.status as keyof typeof statusConfig].label}
-                  </Badge>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Suma Totală:</span>
-                  <span className="text-lg font-bold">{order.total.toFixed(2)} Lei</span>
-                </div>
-              </CardContent>
-            </Card>
 
-            {/* Customer Details */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Detalii Client</CardTitle>
-                <CardDescription>Informații client și contact</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <span className="text-sm font-medium">Nume Client:</span>
-                  <div className="mt-1">{order.customer.name}</div>
-                </div>
-                <div>
-                  <span className="text-sm font-medium">Email:</span>
-                  <div className="mt-1">{order.customer.email}</div>
-                </div>
-                <div>
-                  <span className="text-sm font-medium">Telefon:</span>
-                  <div className="mt-1">{order.customer.phone}</div>
-                </div>
-                <div>
-                  <span className="text-sm font-medium">Adresă Livrare:</span>
-                  <div className="mt-1 text-sm">
-                    {order.shippingAddress.street}
-                    <br />
-                    {order.shippingAddress.city}, {order.shippingAddress.postalCode}
-                    <br />
-                    {order.shippingAddress.country}
-                  </div>
-                </div>
-                <div>
-                  <span className="text-sm font-medium">Adresă Facturare:</span>
-                  <div className="mt-1 text-sm">
-                    {order.billingAddress.street}
-                    <br />
-                    {order.billingAddress.city}, {order.billingAddress.postalCode}
-                    <br />
-                    {order.billingAddress.country}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                    {/* Totals Section */}
+                    <div className="mt-6 flex flex-col items-end gap-2 text-sm">
+                      <div className="flex justify-between w-full max-w-[250px]">
+                        <span className="text-muted-foreground">Subtotal:</span>
+                        <span>{order.subtotal.toFixed(2)} {order.currency}</span>
+                      </div>
+                      <div className="flex justify-between w-full max-w-[250px]">
+                        <span className="text-muted-foreground">Transport:</span>
+                        <span>{order.shipping.toFixed(2)} {order.currency}</span>
+                      </div>
+                      <Separator className="my-2 max-w-[250px]" />
+                      <div className="flex justify-between w-full max-w-[250px] font-bold text-lg">
+                        <span>Total:</span>
+                        <span>{order.total.toFixed(2)} {order.currency}</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Actions Panel */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Procesare Comandă</CardTitle>
+                    <CardDescription>Acțiuni disponibile pentru schimbarea statusului în platformă.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap gap-3">
+                      <Button 
+                        onClick={() => handleOrderAction('mark_picking')} 
+                        disabled={actionLoading || order.status !== 'new'}
+                        className="bg-blue-600 hover:bg-blue-700"
+                      >
+                        {actionLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin"/> : <Package className="h-4 w-4 mr-2" />}
+                        Marchează "În Pregătire"
+                      </Button>
+
+                      <Button 
+                        onClick={() => handleOrderAction('mark_invoiced')}
+                        disabled={actionLoading || order.status === 'completed'}
+                        variant="outline"
+                      >
+                        {actionLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin"/> : <FileText className="h-4 w-4 mr-2" />}
+                        Generează Factură & AWB
+                      </Button>
+
+                      <Button disabled variant="secondary">
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        Finalizează Comandă (Auto)
+                      </Button>
+                    </div>
+                    {order.status !== 'new' && (
+                        <p className="text-xs text-muted-foreground mt-2">
+                            * Unele acțiuni sunt dezactivate deoarece comanda este deja în procesare sau finalizată.
+                        </p>
+                    )}
+                  </CardContent>
+                </Card>
+            </div>
+
+            {/* Column 2: Customer & Shipping Info */}
+            <div className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Detalii Client</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div>
+                      <span className="text-xs font-medium text-muted-foreground uppercase">Nume</span>
+                      <div className="font-medium">{order.customer.name}</div>
+                    </div>
+                    <div>
+                      <span className="text-xs font-medium text-muted-foreground uppercase">Email</span>
+                      <div className="text-sm truncate" title={order.customer.email}>{order.customer.email}</div>
+                    </div>
+                    <div>
+                      <span className="text-xs font-medium text-muted-foreground uppercase">Telefon</span>
+                      <div className="text-sm">{order.customer.phone}</div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Livrare & Facturare</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <Truck className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-semibold text-sm">Adresă Livrare</span>
+                      </div>
+                      <div className="text-sm text-muted-foreground ml-6">
+                        <p>{order.shippingAddress.fullAddress}</p>
+                        <p>{order.shippingAddress.city}, {order.shippingAddress.country}</p>
+                      </div>
+                    </div>
+                    
+                    <Separator />
+
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-semibold text-sm">Adresă Facturare</span>
+                      </div>
+                      <div className="text-sm text-muted-foreground ml-6">
+                        <p>{order.billingAddress.fullAddress}</p>
+                        <p>{order.billingAddress.city}, {order.billingAddress.country}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+            </div>
+
           </div>
-
-          {/* Products */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Articole Comandă</CardTitle>
-              <CardDescription>Produsele incluse în această comandă</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>SKU</TableHead>
-                      <TableHead>NUME PRODUS</TableHead>
-                      <TableHead>CANTITATE</TableHead>
-                      <TableHead>PREȚ UNITAR</TableHead>
-                      <TableHead>SUBTOTAL</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {order.items.map((item, index) => (
-                      <TableRow key={index}>
-                        <TableCell className="font-mono">{item.sku}</TableCell>
-                        <TableCell className="font-medium">{item.name}</TableCell>
-                        <TableCell>{item.quantity}</TableCell>
-                        <TableCell>{item.unitPrice.toFixed(2)} Lei</TableCell>
-                        <TableCell className="font-medium">{item.subtotal.toFixed(2)} Lei</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-
-              <div className="mt-4 space-y-2 border-t pt-4">
-                <div className="flex justify-between">
-                  <span>Subtotal:</span>
-                  <span>{order.subtotal.toFixed(2)} Lei</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Transport:</span>
-                  <span>{order.shipping.toFixed(2)} Lei</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Impozit:</span>
-                  <span>{order.tax.toFixed(2)} Lei</span>
-                </div>
-                <div className="flex justify-between font-bold text-lg border-t pt-2">
-                  <span>Total:</span>
-                  <span>{order.total.toFixed(2)} Lei</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Actions */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Acțiuni Comandă</CardTitle>
-              <CardDescription>Acțiuni disponibile pentru această comandă</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-3">
-                <Button>
-                  <FileText className="h-4 w-4 mr-2" />
-                  Generare Factură
-                </Button>
-                <Button variant="outline">
-                  <Truck className="h-4 w-4 mr-2" />
-                  Creare AWB
-                </Button>
-                <Button variant="outline">
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  Marcare Finalizat
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
         </div>
       </SidebarInset>
     </>
