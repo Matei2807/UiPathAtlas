@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-os.environ["GOOGLE_API_KEY"] = "AIzaSyDBm6k-nfP7uYINhToiOXatYndAFpfrwxk"
+os.environ["GOOGLE_API_KEY"] = "GOOGLE_API_KEY"
 
 class LinieProdus(BaseModel):
     cod: str = Field(..., description="Codul produsului")
