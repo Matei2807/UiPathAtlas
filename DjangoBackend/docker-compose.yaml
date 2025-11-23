@@ -1,0 +1,78 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: redis_broker_local
+    restart: always
+  db:
+    image: postgres:15 # Folosim o imagine oficială de PostgreSQL
+    container_name: postgres_db_local
+    restart: always
+    volumes:
+      - postgres_data_local:/var/lib/postgresql/data/
+    environment:
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASS}
+    ports:
+      - "5432:5432" # Expunem portul pe mașina gazdă pentru a ne putea conecta cu un client DB
+    expose:
+      - "5432"
+
+  backend:
+    container_name: backend_local
+    image:  ghcr.io/matei2807/atlas-be
+    restart: always
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - DB_HOST=db
+      - REDIS_HOST=redis
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    expose:
+      - "8000"
+    depends_on: # Această linie asigură că serviciul 'db' pornește înaintea backend-ului
+      - db
+      - redis
+    
+  celery_worker:
+    container_name: celery_worker_local
+    restart: always
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment: # Adaugă această secțiune
+    - DB_HOST=db
+    - REDIS_HOST=redis
+    volumes:
+      - .:/app
+    # Comanda care pornește un muncitor Celery
+    command: celery -A SmartTravel worker -l info
+    depends_on:
+      - backend
+      - redis
+      - db
+
+  celery_beat:
+    container_name: celery_beat_local
+    restart: always
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+    - DB_HOST=db
+    - REDIS_HOST=redis
+    volumes:
+      - .:/app
+    # Comanda care pornește planificatorul Celery (ceasul)
+    command: celery -A SmartTravel beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    depends_on:
+      - backend
+      - redis
+      - db
+
+volumes:
+  postgres_data_local:

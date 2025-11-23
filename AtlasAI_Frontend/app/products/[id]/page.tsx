@@ -53,8 +53,10 @@ interface ProductDetail {
     current_stock: number;
   }>;
   listings: Array<{
-      channel: string;
-      is_active: boolean;
+      id: number;
+      platform_type: string; // ex: 'trendyol', 'emag'
+      status: string;        // ex: 'active', 'pending_create', 'draft'
+      platform_listing_id: string;
   }>;
   // Câmpurile de mai jos sunt adăugate local, nu vin de la API
   channels: {
@@ -89,20 +91,30 @@ export default function ProductEditPage() {
         
         const data = await res.json()
         
-        // Procesăm canalele din listings
         const channelsData = (data.listings || []).reduce((acc: any, listing: any) => {
-            const channelName = listing.channel?.toLowerCase();
-            if (channelName) {
-                acc[channelName] = { active: listing.is_active, mapped: true };
+            // Backend-ul trimite 'platform_type' (din MarketplaceAccount.Platform)
+            const channelId = listing.platform_type?.toLowerCase();
+
+            // Verificăm dacă e un canal cunoscut (emag sau trendyol)
+            if (channelId && (channelId === 'emag' || channelId === 'trendyol')) {
+                acc[channelId] = { 
+                    // Considerăm activ doar dacă statusul este explicit 'active'
+                    active: listing.status === 'active', 
+                    
+                    // Dacă există listing-ul, înseamnă că produsul e mapat
+                    mapped: true,
+                    
+                    // Opțional: Salvăm statusul real pentru afișare (ex: "pending_create")
+                    status: listing.status 
+                };
             }
             return acc;
         }, { emag: { active: false, mapped: false }, trendyol: { active: false, mapped: false } });
+        // ------------------------
 
-        // Normalizăm datele
         setProduct({
             ...data,
             channels: channelsData,
-            // Asigurăm existența obiectului product_details
             product_details: data.product_details || { title: 'N/A', brand: 'N/A', description: '' }
         })
       } catch (error) {
@@ -320,11 +332,19 @@ export default function ProductEditPage() {
                                     {channelData.active ? "Sincronizare Activă" : "Sincronizare Oprită"}
                                 </Label>
                             </div>
-                            {channelData.mapped ? (
-                                <span className="text-xs text-blue-600 font-medium">Produs Mapat</span>
-                            ) : (
-                                <span className="text-xs text-gray-400">Nemapata</span>
-                            )}
+                            <div className="flex flex-col items-end">
+                                {channelData.mapped ? (
+                                    <>
+                                        <span className="text-xs text-blue-600 font-medium">Produs Mapat</span>
+                                        {/* Afișează statusul real din backend (ex: active, pending, failed) */}
+                                        <span className="text-[10px] uppercase text-muted-foreground font-mono mt-1">
+                                            Status: {channelData.status || 'NECUNOSCUT'}
+                                        </span>
+                                    </>
+                                ) : (
+                                    <span className="text-xs text-gray-400">Nemapata (Nu există listing)</span>
+                                )}
+                            </div>
                           </div>
                           
                           {/* Placeholder pentru viitoare setări de preț per canal */}

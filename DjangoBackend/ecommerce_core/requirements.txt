@@ -1,0 +1,6 @@
+pandas
+openpyxl
+Pillow
+cloudinary
+python-dotenv
+requests

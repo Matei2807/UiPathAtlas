@@ -22,6 +22,8 @@ import { Search, RefreshCw, Plus, Loader2, Layers, Package } from "lucide-react"
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { Toaster, toast } from "sonner" 
+import { useRef } from "react" 
 
 // --- CONFIGURARE API ---
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
@@ -52,14 +54,16 @@ export default function ProductsPage() {
   const router = useRouter()
   const [products, setProducts] = useState<ProductData[]>([])
   const [isLoading, setIsLoading] = useState(false)
+
+  const productsRef = useRef<ProductData[]>([])
   
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedChannel, setSelectedChannel] = useState<string>("all")
   const [selectedProducts, setSelectedProducts] = useState<number[]>([])
 
   // --- FETCH DATA ---
-  const fetchProducts = async () => {
-    setIsLoading(true)
+  const fetchProducts = async (isSilent = false) => {
+    if (!isSilent) setIsLoading(true)
     try {
       const token = localStorage.getItem("accessToken") || TEMPORARY_USER_TOKEN
       
@@ -94,14 +98,64 @@ export default function ProductsPage() {
             return acc;
         }, { emag: { active: false, mapped: false }, trendyol: { active: false, mapped: false } })
       }));
+
+      if (isSilent && productsRef.current.length > 0) {
+         checkForStockChanges(productsRef.current, mappedProducts);
+      }
+
       setProducts(mappedProducts)
-      
+      productsRef.current = mappedProducts;
     } catch (error) {
       console.error("Error fetching products:", error)
     } finally {
-      setIsLoading(false)
+      if (!isSilent) setIsLoading(false)
     }
   }
+
+  // --- FUNCȚIA DE COMPARARE ---
+  const checkForStockChanges = (oldData: ProductData[], newData: ProductData[]) => {
+      const changes: string[] = [];
+
+      newData.forEach(newItem => {
+          const oldItem = oldData.find(p => p.id === newItem.id);
+          if (oldItem && oldItem.stock !== newItem.stock) {
+              const diff = newItem.stock - oldItem.stock;
+              const sign = diff > 0 ? "+" : "";
+              changes.push(`${newItem.product_name}(${newItem.sku}): ${oldItem.stock} -> ${newItem.stock} (${sign}${diff})`);
+          }
+      });
+
+      if (changes.length > 0) {
+          // Afișăm notificare
+          toast.message("Actualizare Stoc Detectată!", {
+            description: (
+                <div className="mt-2 text-xs">
+                    {changes.slice(0, 3).map((line, i) => (
+                        <div key={i}>{line}</div>
+                    ))}
+                    {changes.length > 3 && <div>...și alte {changes.length - 3} produse.</div>}
+                </div>
+            ),
+            duration: 5000,
+          });
+          
+          // Opțional: Poți reda și un sunet scurt aici
+      }
+  }
+
+  // --- INITIAL LOAD & POLLING ---
+  useEffect(() => {
+    // 1. Încărcare inițială
+    fetchProducts();
+
+    // 2. Setăm intervalul de verificare (ex: la fiecare 15 secunde)
+    const intervalId = setInterval(() => {
+        fetchProducts(true); // true = silent mode
+    }, 10000); 
+
+    // 3. Curățăm intervalul când părăsim pagina
+    return () => clearInterval(intervalId);
+  }, [])
 
   useEffect(() => {
     fetchProducts()
@@ -134,6 +188,7 @@ export default function ProductsPage() {
 
   return (
     <>
+      <Toaster position="top-right" />
       <AppSidebar />
       <SidebarInset>
         <header className="flex h-16 shrink-0 items-center gap-2 border-b">
