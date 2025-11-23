@@ -19,6 +19,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { Badge } from "@/components/ui/badge"
 import { Save, ArrowLeft, Package, Layers, Info, Loader2 } from "lucide-react"
 import { useState, useEffect } from "react"
 import Link from "next/link"
@@ -27,24 +28,39 @@ import { toast } from "sonner" // Recomand să instalezi sonner sau folosești a
 
 // --- API CONFIG ---
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
-const TEMPORARY_USER_TOKEN = "98f91c94d678d96df72f2ff5f04683b18c5dc0c3"
+const TEMPORARY_USER_TOKEN = "132c0560ba71c28a3a06c46ab01bf2cc73a02353"
 
 // Tipuri pentru datele de la Backend
 interface ProductDetail {
-  id: number
-  sku: string
-  product_name: string
-  brand: string
-  stock: number
-  price: string
-  // Mockup pentru bundle (backend-ul tău încă nu trimite asta, dar pregătim UI-ul)
-  is_bundle?: boolean 
-  bundleItems?: Array<{sku: string, name: string, quantity: number, current_stock: number}>
-  description?: string
+  id: number;
+  sku: string;
+  stock: number;
+  price: string;
+  is_bundle: boolean;
+  product_details: {
+    id: number;
+    title: string;
+    brand: string;
+    description: string;
+  };
+  components: Array<{
+    id: number;
+    component_variant: number;
+    component_sku: string;
+    component_name: string;
+    component_image: string;
+    quantity: number;
+    current_stock: number;
+  }>;
+  listings: Array<{
+      channel: string;
+      is_active: boolean;
+  }>;
+  // Câmpurile de mai jos sunt adăugate local, nu vin de la API
   channels: {
-    emag: { active: boolean; mapped: boolean }
-    trendyol: { active: boolean; mapped: boolean }
-  }
+    emag: { active: boolean; mapped: boolean };
+    trendyol: { active: boolean; mapped: boolean };
+  };
 }
 
 const channels = [
@@ -73,13 +89,21 @@ export default function ProductEditPage() {
         
         const data = await res.json()
         
-        // Normalizăm datele (backend-ul poate să nu trimită descrierea încă, o punem goală)
+        // Procesăm canalele din listings
+        const channelsData = (data.listings || []).reduce((acc: any, listing: any) => {
+            const channelName = listing.channel?.toLowerCase();
+            if (channelName) {
+                acc[channelName] = { active: listing.is_active, mapped: true };
+            }
+            return acc;
+        }, { emag: { active: false, mapped: false }, trendyol: { active: false, mapped: false } });
+
+        // Normalizăm datele
         setProduct({
             ...data,
-            // Fallback pentru câmpuri lipsă
-            description: data.description || "Descriere generată automat...",
-            is_bundle: data.sku.startsWith("SET") || data.sku.startsWith("BUNDLE"), // Logică temporară
-            bundleItems: [] // Backend-ul nu trimite încă componentele
+            channels: channelsData,
+            // Asigurăm existența obiectului product_details
+            product_details: data.product_details || { title: 'N/A', brand: 'N/A', description: '' }
         })
       } catch (error) {
         console.error(error)
@@ -203,7 +227,7 @@ export default function ProductEditPage() {
                         <Label htmlFor="name">Nume Produs</Label>
                         <Input 
                             id="name" 
-                            value={product.product_name} 
+                            value={product.product_details.title} 
                             disabled // Numele vine din Părinte, deocamdată read-only aici
                         />
                     </div>
@@ -213,7 +237,7 @@ export default function ProductEditPage() {
                   <Label htmlFor="description">Descriere (Marketing)</Label>
                   <Textarea
                     id="description"
-                    value={product.description}
+                    value={product.product_details.description}
                     disabled // Readonly momentan
                     className="resize-none bg-muted/20"
                     rows={4}
@@ -273,7 +297,7 @@ export default function ProductEditPage() {
                 <Accordion type="multiple" className="w-full" defaultValue={["trendyol", "emag"]}>
                   {channels.map((channel) => {
                     // @ts-ignore
-                    const channelData = product.channels[channel.id] || { active: false, mapped: false }
+                    const channelData = product.channels?.[channel.id] || { active: false, mapped: false }
 
                     return (
                       <AccordionItem key={channel.id} value={channel.id}>
@@ -314,6 +338,41 @@ export default function ProductEditPage() {
                 </Accordion>
               </CardContent>
             </Card>
+
+            {product.is_bundle && (
+              <Card className="h-fit">
+                <CardHeader>
+                  <CardTitle>Componente Bundle</CardTitle>
+                  <CardDescription>Produsele incluse în acest pachet</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {product.components?.map((comp) => (
+                      <div key={comp.id} className="flex items-center gap-4 border p-3 rounded-lg">
+                        <div className="h-12 w-12 shrink-0 overflow-hidden rounded-md border bg-muted">
+                           {/* eslint-disable-next-line @next/next/no-img-element */}
+                           <img 
+                              src={comp.component_image || "/placeholder.png"} 
+                              alt={comp.component_name}
+                              className="h-full w-full object-cover"
+                           />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium line-clamp-2" title={comp.component_name}>{comp.component_name}</p>
+                            <p className="text-xs text-muted-foreground font-mono">{comp.component_sku}</p>
+                        </div>
+                        <div className="text-right text-sm shrink-0">
+                            <div className="font-medium">x{comp.quantity}</div>
+                            <div className={`text-xs ${comp.current_stock > 0 ? "text-green-600" : "text-red-600"}`}>
+                                Stoc: {comp.current_stock}
+                            </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
       </SidebarInset>

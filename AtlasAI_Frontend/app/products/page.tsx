@@ -21,10 +21,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Search, RefreshCw, Plus, Loader2, Layers, Package } from "lucide-react"
 import { useState, useEffect } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 
 // --- CONFIGURARE API ---
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
-const TEMPORARY_USER_TOKEN = "98f91c94d678d96df72f2ff5f04683b18c5dc0c3" // În producție ia-l din AuthContext
+const TEMPORARY_USER_TOKEN = "132c0560ba71c28a3a06c46ab01bf2cc73a02353" // În producție ia-l din AuthContext
 
 // Interfața Backend Django
 interface ProductData {
@@ -48,6 +49,7 @@ const channelsList = [
 ]
 
 export default function ProductsPage() {
+  const router = useRouter()
   const [products, setProducts] = useState<ProductData[]>([])
   const [isLoading, setIsLoading] = useState(false)
   
@@ -74,7 +76,25 @@ export default function ProductsPage() {
       const data = await response.json()
       // Suport pentru paginare Django (results) sau listă directă
       const results = Array.isArray(data) ? data : data.results || []
-      setProducts(results)
+      
+      // Mapare pentru a se potrivi cu interfața ProductData
+      const mappedProducts: ProductData[] = results.map((item: any) => ({
+        id: item.id,
+        sku: item.sku,
+        product_name: item.product_title || 'Nume indisponibil',
+        brand: item.brand || 'Brand indisponibil',
+        stock: item.stock,
+        price: item.price,
+        is_bundle: item.is_bundle,
+        channels: (item.listings || []).reduce((acc: any, listing: any) => {
+            const channelName = listing.channel?.toLowerCase();
+            if (channelName && (channelName === 'emag' || channelName === 'trendyol')) {
+                acc[channelName] = { active: listing.is_active, mapped: true };
+            }
+            return acc;
+        }, { emag: { active: false, mapped: false }, trendyol: { active: false, mapped: false } })
+      }));
+      setProducts(mappedProducts)
       
     } catch (error) {
       console.error("Error fetching products:", error)
@@ -224,6 +244,7 @@ export default function ProductsPage() {
                         <TableRow
                           key={product.id}
                           className="cursor-pointer hover:bg-muted/50 transition-colors"
+                          onClick={() => router.push(`/products/${product.id}`)}
                         >
                           <TableCell onClick={(e) => e.stopPropagation()}>
                             <Checkbox
@@ -250,7 +271,7 @@ export default function ProductsPage() {
                           </TableCell>
                           <TableCell className="font-medium max-w-[300px] truncate" title={product.product_name}>
                             {/* Link către pagina de editare */}
-                            <Link href={`/products/${product.id}`} className="hover:underline text-primary">
+                            <Link href={`/products/${product.id}`} onClick={(e) => e.stopPropagation()} className="hover:underline text-primary">
                                 {product.product_name}
                             </Link>
                             <div className="text-xs text-muted-foreground">{product.brand}</div>
@@ -274,7 +295,7 @@ export default function ProductsPage() {
                             <div className="flex items-center gap-1">
                               {channelsList.map((channel) => {
                                 // @ts-ignore
-                                const channelData = product.channels[channel.id]
+                                const channelData = product.channels?.[channel.id]
                                 return (
                                   <div
                                     key={channel.id}

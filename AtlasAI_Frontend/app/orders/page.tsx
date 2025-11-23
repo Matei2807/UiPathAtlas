@@ -19,7 +19,7 @@ import { format } from "date-fns"
 import type { DateRange } from "react-day-picker"
 
 const API_BASE_URL = "http://localhost:8000/api/v2/ecommerce" 
-const TEMPORARY_USER_TOKEN = "c8b8415c0a6634cf446a7b319750380beeea07b6" 
+const TEMPORARY_USER_TOKEN = "132c0560ba71c28a3a06c46ab01bf2cc73a02353" 
 
 // --- INTERFETE ---
 export interface Order {

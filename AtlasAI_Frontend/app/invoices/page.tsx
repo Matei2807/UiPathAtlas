@@ -32,7 +32,7 @@ import { Loader2, Upload, Eye, FileText, CheckCircle2, AlertCircle } from "lucid
 // Înlocuiește cu URL-ul real sau process.env.NEXT_PUBLIC_API_BASE_URL
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
 
-const TEMPORARY_USER_TOKEN = "98f91c94d678d96df72f2ff5f04683b18c5dc0c3" 
+const TEMPORARY_USER_TOKEN = "132c0560ba71c28a3a06c46ab01bf2cc73a02353" 
 
 interface Invoice {
   id: string
