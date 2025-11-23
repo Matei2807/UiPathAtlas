@@ -3,104 +3,87 @@
 import { AppSidebar } from "@/components/app-sidebar"
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { Separator } from "@/components/ui/separator"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Loader2, CheckCircle2, Upload } from "lucide-react"
+import { Loader2, CheckCircle2, Upload, Sparkles } from "lucide-react"
 import { useState } from "react"
+
+// --- CONFIG API ---
+const API_BASE_URL = "http://localhost:8000/api/v2/ecommerce"
+// TODO: Token management (context sau localStorage)
+const TEMPORARY_USER_TOKEN = "c8b8415c0a6634cf446a7b319750380beeea07b6"
 
 interface Bundle {
   id: string
-  products: string[]
+  products: string[] // Aici vor veni ["Detergent...", "Balsam..."] din excel
   frequency: number
   status: "suggested" | "approved" | "processing" | "created"
   price?: number
   bundleCode?: string
   bundleTitle?: string
+  // Poți adăuga și asta dacă vrei să afișezi descrierea generată din Excel/AI
+  bundleDescription?: string 
+  savings?: number
 }
 
 export default function BundlesPage() {
   const [isSearching, setIsSearching] = useState(false)
   const [bundles, setBundles] = useState<Bundle[]>([])
   const [hasSearched, setHasSearched] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
+  // --- API CALL ---
   const handleSearchBundles = async () => {
     setIsSearching(true)
-    // Simulate API call to analyze orders from eMAG and Trendyol
-    setTimeout(() => {
-      setBundles([
-        {
-          id: "bundle-1",
-          products: ["Detergent Chanteclair Bicarbonat 600ml", "Degresant Chanteclair Color 1575ml"],
-          frequency: 47,
-          status: "suggested",
-          price: 39.99,
-        },
-        {
-          id: "bundle-2",
-          products: ["Balsam rufe albe Chanteclair 1800ml", "Detergent pardoseli Mosc alb 750ml"],
-          frequency: 32,
-          status: "suggested",
-          price: 35.5,
-        },
-        {
-          id: "bundle-3",
-          products: [
-            "Detergent Chanteclair Bicarbonat 600ml",
-            "Balsam rufe albe Chanteclair 1800ml",
-            "Degresant vase Chanteclair cu rodie 500ml",
-          ],
-          frequency: 28,
-          status: "suggested",
-          price: 54.99,
-        },
-        {
-          id: "bundle-4",
-          products: ["Degresant vase Chanteclair cu rodie 500ml", "Detergent pardoseli Mosc alb 750ml"],
-          frequency: 19,
-          status: "suggested",
-          price: 27.25,
-        },
-      ])
-      setIsSearching(false)
+    setError(null)
+    setBundles([])
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/bundles/generate/post/`, {
+        method: 'POST', // POST pentru ca declansam o actiune de generare
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Token ${TEMPORARY_USER_TOKEN}`
+        }
+      })
+
+      if (!response.ok) {
+        throw new Error(`Eroare server: ${response.status}`)
+      }
+
+      const data = await response.json()
+      // Backend-ul returneaza direct lista de sugestii
+      setBundles(data)
       setHasSearched(true)
-    }, 3000)
+
+    } catch (err: any) {
+      console.error("Bundle gen error:", err)
+      setError("Nu am putut genera pachetele. Verifică conexiunea cu serverul.")
+    } finally {
+      setIsSearching(false)
+    }
   }
 
   const handleApproveBundle = async (bundleId: string) => {
+    // Logic to approve/create bundle in DB
     setBundles(bundles.map((b) => (b.id === bundleId ? { ...b, status: "processing" } : b)))
-
-    // Simulate backend processing to generate bundle data
+    
+    // Simulare delay procesare (sau call catre endpoint /bundles/create/)
     setTimeout(() => {
-      setBundles(
-        bundles.map((b) => {
-          if (b.id === bundleId) {
-            return {
-              ...b,
-              status: "created",
-              bundleCode: `BUNDLE-${Math.random().toString(36).substring(7).toUpperCase()}`,
-              bundleTitle: `Set Curățenie Chanteclair - ${b.products.length} Produse`,
+        setBundles(prev => prev.map(b => {
+            if (b.id === bundleId) {
+                return {
+                    ...b, 
+                    status: "created",
+                    bundleCode: `BND-${Math.floor(Math.random()*10000)}`,
+                    bundleTitle: `Pachet Promo: ${b.products[0]} + ...`
+                }
             }
-          }
-          return b
-        }),
-      )
-    }, 2000)
-  }
-
-  const handleExportToChannel = (bundleId: string, channel: "emag" | "trendyol") => {
-    const bundle = bundles.find((b) => b.id === bundleId)
-    if (bundle) {
-      console.log(`Exporting bundle ${bundleId} to ${channel}`)
-      // API call to export bundle to marketplace
-    }
+            return b
+        }))
+    }, 1500)
   }
 
   return (
@@ -113,13 +96,9 @@ export default function BundlesPage() {
             <Separator orientation="vertical" className="mr-2 h-4" />
             <Breadcrumb>
               <BreadcrumbList>
-                <BreadcrumbItem className="hidden md:block">
-                  <BreadcrumbLink href="/">Panou de Control</BreadcrumbLink>
-                </BreadcrumbItem>
+                <BreadcrumbItem className="hidden md:block"><BreadcrumbLink href="/">Panou de Control</BreadcrumbLink></BreadcrumbItem>
                 <BreadcrumbSeparator className="hidden md:block" />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>Pachete</BreadcrumbPage>
-                </BreadcrumbItem>
+                <BreadcrumbItem><BreadcrumbPage>Pachete AI</BreadcrumbPage></BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
           </div>
@@ -127,33 +106,42 @@ export default function BundlesPage() {
         <div className="flex flex-1 flex-col gap-4 p-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold tracking-tight">Pachete Produse</h1>
-              <p className="text-muted-foreground">Detectare și creație de pachete din date de comenzi</p>
+              <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+                <Sparkles className="h-6 w-6 text-purple-600"/> Pachete Inteligente
+              </h1>
+              <p className="text-muted-foreground">Agentul AI analizează comenzile și propune combinații profitabile.</p>
             </div>
-            <Button onClick={handleSearchBundles} disabled={isSearching} size="lg">
+            <Button onClick={handleSearchBundles} disabled={isSearching} size="lg" className="bg-purple-600 hover:bg-purple-700">
               {isSearching ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Se caută pachete...
+                  Agentul lucrează...
                 </>
               ) : (
                 <>
                   <Upload className="mr-2 h-4 w-4" />
-                  Cauta Pachete
+                  Generează Pachete Noi
                 </>
               )}
             </Button>
           </div>
 
+          {/* Zona Erori */}
+          {error && (
+            <Card className="border-red-200 bg-red-50">
+                <CardContent className="pt-6 text-red-800">{error}</CardContent>
+            </Card>
+          )}
+
           {isSearching && (
-            <Card className="border-blue-200 bg-blue-50">
+            <Card className="border-purple-200 bg-purple-50">
               <CardContent className="pt-6">
                 <div className="flex items-center gap-3">
-                  <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+                  <Loader2 className="h-5 w-5 animate-spin text-purple-600" />
                   <div>
-                    <p className="font-medium text-blue-900">Analizez comenzile...</p>
-                    <p className="text-sm text-blue-700">
-                      Se analizează datele din eMAG și Trendyol pentru a detecta produsele frecvent cumpărate împreună.
+                    <p className="font-medium text-purple-900">Analiză în curs...</p>
+                    <p className="text-sm text-purple-700">
+                      Căutăm corelații în comenzile eMAG și Trendyol. Calculăm marjele de profit.
                     </p>
                   </div>
                 </div>
@@ -161,105 +149,54 @@ export default function BundlesPage() {
             </Card>
           )}
 
-          {hasSearched && bundles.length === 0 && !isSearching && (
+          {hasSearched && bundles.length === 0 && !isSearching && !error && (
             <Card className="border-amber-200 bg-amber-50">
               <CardContent className="pt-6">
-                <p className="text-amber-900">Nu au fost găsite pachete sugerate pe baza comenzilor actuale.</p>
+                <p className="text-amber-900">Nu am găsit pachete noi evidente. Încearcă să vinzi mai multe produse individuale întâi.</p>
               </CardContent>
             </Card>
           )}
 
           {bundles.length > 0 && (
-            <div className="grid gap-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold">Pachete Sugerate</h2>
-                  <p className="text-sm text-muted-foreground">{bundles.length} combinații de produse detectate</p>
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {bundles.map((bundle) => (
-                  <Card key={bundle.id} className="flex flex-col">
-                    <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <CardTitle className="text-base">Set de {bundle.products.length} Produse</CardTitle>
-                          <CardDescription>Cumpărat împreună de {bundle.frequency} ori</CardDescription>
-                        </div>
+                  <Card key={bundle.id} className="flex flex-col border-l-4 border-l-purple-500 shadow-sm hover:shadow-md transition-shadow">
+                    <CardHeader className="pb-2">
+                      <div className="flex justify-between items-start">
+                        <Badge variant="secondary" className="mb-2">Frecvență: {bundle.frequency} comenzi</Badge>
                         {bundle.status === "created" && <CheckCircle2 className="h-5 w-5 text-green-600" />}
                       </div>
+                      <CardTitle className="text-base leading-tight">{bundle.bundleTitle || "Sugestie Pachet Nou"}</CardTitle>
                     </CardHeader>
-                    <CardContent className="flex-1">
-                      <div className="space-y-3">
-                        <div className="space-y-1">
-                          <p className="text-xs font-semibold text-muted-foreground">PRODUSE</p>
-                          <ul className="space-y-1">
-                            {bundle.products.map((product, idx) => (
-                              <li key={idx} className="text-sm text-muted-foreground flex items-start gap-2">
-                                <span className="text-primary font-bold mt-0.5">•</span>
-                                <span>{product}</span>
-                              </li>
-                            ))}
-                          </ul>
+                    <CardContent className="flex-1 flex flex-col gap-4">
+                        <div className="flex-1">
+                            <ul className="space-y-2">
+                                {bundle.products.map((prod, i) => (
+                                    <li key={i} className="text-sm flex gap-2">
+                                        <span className="text-purple-600 font-bold">+</span> {prod}
+                                    </li>
+                                ))}
+                            </ul>
                         </div>
-
-                        <div className="pt-2 border-t">
-                          <p className="text-xs font-semibold text-muted-foreground">PREȚ PACHET</p>
-                          <p className="text-lg font-bold">{bundle.price?.toFixed(2) || "..."} Lei</p>
-                        </div>
-
-                        {bundle.status === "created" && (
-                          <div className="space-y-2 pt-2 border-t">
-                            <p className="text-xs font-semibold text-muted-foreground">INFORMAȚII GENERATE</p>
-                            <div className="text-sm space-y-1">
-                              <p>
-                                <span className="font-medium">Cod:</span> {bundle.bundleCode}
-                              </p>
-                              <p className="text-xs text-muted-foreground">{bundle.bundleTitle}</p>
+                        
+                        <div className="bg-muted/30 p-3 rounded-lg">
+                            <div className="flex justify-between items-center">
+                                <span className="text-sm text-muted-foreground">Preț Promo propus:</span>
+                                <span className="font-bold text-lg">{bundle.price?.toFixed(2)} Lei</span>
                             </div>
-                          </div>
-                        )}
-                      </div>
+                        </div>
+
+                        <Button 
+                            onClick={() => handleApproveBundle(bundle.id)} 
+                            disabled={bundle.status !== "suggested"}
+                            className="w-full"
+                            variant={bundle.status === "created" ? "outline" : "default"}
+                        >
+                            {bundle.status === "created" ? "Pachet Creat" : "Aprobă & Creează"}
+                        </Button>
                     </CardContent>
-                    <CardHeader className="pt-0 border-t">
-                      <div className="flex gap-2">
-                        {bundle.status === "suggested" && (
-                          <Button onClick={() => handleApproveBundle(bundle.id)} size="sm" className="flex-1">
-                            Aproba Pachet
-                          </Button>
-                        )}
-                        {bundle.status === "processing" && (
-                          <Button size="sm" disabled className="flex-1">
-                            <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                            Se procesează...
-                          </Button>
-                        )}
-                        {bundle.status === "created" && (
-                          <div className="flex gap-2 w-full">
-                            <Button
-                              onClick={() => handleExportToChannel(bundle.id, "emag")}
-                              variant="outline"
-                              size="sm"
-                              className="flex-1"
-                            >
-                              Export eMAG
-                            </Button>
-                            <Button
-                              onClick={() => handleExportToChannel(bundle.id, "trendyol")}
-                              variant="outline"
-                              size="sm"
-                              className="flex-1"
-                            >
-                              Export Trendyol
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    </CardHeader>
                   </Card>
                 ))}
-              </div>
             </div>
           )}
         </div>
