@@ -25,7 +25,7 @@ import { useRouter } from "next/navigation"
 
 // --- CONFIGURARE API ---
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
-const TEMPORARY_USER_TOKEN = "132c0560ba71c28a3a06c46ab01bf2cc73a02353" // În producție ia-l din AuthContext
+const TEMPORARY_USER_TOKEN = "98f91c94d678d96df72f2ff5f04683b18c5dc0c3" // În producție ia-l din AuthContext
 
 // Interfața Backend Django
 interface ProductData {

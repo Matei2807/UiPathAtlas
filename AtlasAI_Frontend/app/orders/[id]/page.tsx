@@ -25,7 +25,7 @@ import { toast } from "sonner" // Optional: pentru notificari, sau foloseste ale
 // --- CONFIGURARE API ---
 const API_BASE_URL = "http://localhost:8000/api/v2/ecommerce"
 // Folosim token-ul din contextul anterior (sau din env in mod ideal)
-const TEMPORARY_USER_TOKEN = "132c0560ba71c28a3a06c46ab01bf2cc73a02353"
+const TEMPORARY_USER_TOKEN = "98f91c94d678d96df72f2ff5f04683b18c5dc0c3"
 
 // --- INTERFEȚE UI ---
 interface OrderItem {

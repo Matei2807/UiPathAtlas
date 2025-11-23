@@ -13,7 +13,7 @@ import { useState } from "react"
 // --- CONFIG API ---
 const API_BASE_URL = "http://localhost:8000/api/v2/ecommerce"
 // TODO: Token management (context sau localStorage)
-const TEMPORARY_USER_TOKEN = "c8b8415c0a6634cf446a7b319750380beeea07b6"
+const TEMPORARY_USER_TOKEN = "98f91c94d678d96df72f2ff5f04683b18c5dc0c3"
 
 interface Bundle {
   id: string
@@ -41,7 +41,7 @@ export default function BundlesPage() {
     setBundles([])
 
     try {
-      const response = await fetch(`${API_BASE_URL}/bundles/generate/post/`, {
+      const response = await fetch(`${API_BASE_URL}/bundles/generate/`, {
         method: 'POST', // POST pentru ca declansam o actiune de generare
         headers: {
           'Content-Type': 'application/json',
@@ -54,6 +54,7 @@ export default function BundlesPage() {
       }
 
       const data = await response.json()
+      console.log("Bundle generation response:", data)
       // Backend-ul returneaza direct lista de sugestii
       setBundles(data)
       setHasSearched(true)
