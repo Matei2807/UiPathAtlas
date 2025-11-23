@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
@@ -26,13 +26,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Loader2, Upload, Eye, FileText, CheckCircle2, AlertCircle } from "lucide-react"
+import { Loader2, Upload, Eye, FileText, CheckCircle2, AlertCircle, Mail } from "lucide-react"
 
 // --- CONFIGURARE API ---
-// Înlocuiește cu URL-ul real sau process.env.NEXT_PUBLIC_API_BASE_URL
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
-
-const TEMPORARY_USER_TOKEN = "98f91c94d678d96df72f2ff5f04683b18c5dc0c3" 
+const TEMPORARY_USER_TOKEN = "132c0560ba71c28a3a06c46ab01bf2cc73a02353" 
 
 interface Invoice {
   id: string
@@ -42,6 +40,7 @@ interface Invoice {
   fileType: "pdf" | "jpg"
   productsUpdated?: number
   error?: string
+  source?: "manual" | "email" // Ca să știm de unde a venit
 }
 
 export default function InvoicesPage() {
@@ -53,15 +52,98 @@ export default function InvoicesPage() {
       status: "completed",
       fileType: "pdf",
       productsUpdated: 3,
+      source: "manual"
     },
-    // ... alte date mock
   ])
 
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
+  
+  // State pentru a urmări ultimul eveniment procesat și a nu-l duplica
+  const [lastEventId, setLastEventId] = useState<number | null>(null)
+  const processedEventIds = useRef(new Set<number>())
 
+  // --- 1. LISTENER AUTOMAT PENTRU EMAIL-URI (POLLING CORECTAT) ---
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/v2/ecommerce/events/latest/`);
+        if (!res.ok) return;
+        
+        const event = await res.json();
+        
+        // Dacă nu avem eveniment, ieșim
+        if (!event.id) return;
+
+        // ID-ul unic pe care îl folosim în frontend
+        const autoId = `AUTO-${event.id}`;
+
+        setInvoices(prevInvoices => {
+            // Căutăm dacă factura există deja în tabel
+            const existingIndex = prevInvoices.findIndex(inv => inv.id === autoId);
+            const existingInvoice = prevInvoices[existingIndex];
+
+            // CAZ 1: EVENIMENT NOU (PROCESSING) -> Adăugăm în tabel
+            if (event.status === 'processing' && existingIndex === -1) {
+                // Extragem numele fișierului din mesaj
+                const fileNameMatch = event.message.match(/factura: (.*?).pdf/i) || event.message.match(/factura: (.*?)/i);
+                const fileName = fileNameMatch ? `${fileNameMatch[1]}.pdf` : "Factura_Email.pdf";
+
+                const newInvoice: Invoice = {
+                    id: autoId,
+                    fileName: fileName,
+                    uploadDate: new Date(),
+                    status: "processing",
+                    fileType: "pdf",
+                    source: "email"
+                };
+                // O punem prima în listă
+                return [newInvoice, ...prevInvoices];
+            }
+
+            // CAZ 2: ACTUALIZARE STATUS (COMPLETED)
+            // Dacă există în tabel ȘI era 'processing' ȘI acum backend-ul zice 'completed'
+            if (existingIndex !== -1 && existingInvoice.status === 'processing' && event.status === 'completed') {
+                const updatedList = [...prevInvoices];
+                updatedList[existingIndex] = {
+                    ...existingInvoice,
+                    status: "completed",
+                    productsUpdated: 5 // Sau extragi numărul din event.message dacă ai pus acolo
+                };
+                
+                // Trigger UI feedback
+                setShowSuccess(true);
+                setTimeout(() => setShowSuccess(false), 5000);
+                
+                return updatedList;
+            }
+
+            // CAZ 3: EROARE
+            if (existingIndex !== -1 && existingInvoice.status === 'processing' && event.status === 'error') {
+                const updatedList = [...prevInvoices];
+                updatedList[existingIndex] = {
+                    ...existingInvoice,
+                    status: "error",
+                    error: event.message
+                };
+                return updatedList;
+            }
+
+            // Dacă nu s-a schimbat nimic relevant, returnăm starea neschimbată
+            return prevInvoices;
+        });
+
+      } catch (e) {
+        // Silent fail
+      }
+    }, 1000); // Verifică la fiecare secundă pentru demo rapid
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // --- 2. UPLOAD MANUAL (Rămâne la fel) ---
   const handleFileSelect = (file: File) => {
     const validTypes = ["application/pdf", "image/jpeg", "image/jpg"]
     if (!validTypes.includes(file.type)) {
@@ -71,13 +153,10 @@ export default function InvoicesPage() {
     setUploadedFile(file)
   }
 
-  // --- LOGICA DE UPLOAD INTEGRATĂ ---
-  // --- LOGICA DE UPLOAD INTEGRATĂ ---
   const handleUpload = async () => {
     if (!uploadedFile) return
 
     setIsUploading(true)
-    
     const tempId = `INV-${Date.now()}`
     const fileType = uploadedFile.type === "application/pdf" ? "pdf" : "jpg"
     
@@ -87,6 +166,7 @@ export default function InvoicesPage() {
       uploadDate: new Date(),
       status: "uploading",
       fileType: fileType as "pdf" | "jpg",
+      source: "manual"
     }
 
     setInvoices((prev) => [newInvoice, ...prev])
@@ -95,92 +175,46 @@ export default function InvoicesPage() {
     formData.append("file", uploadedFile)
 
     try {
-      const token = localStorage.getItem("accessToken") 
-
-      // 1. CORECȚIE URL: Adăugăm '/process/' la final
       const response = await fetch(`${API_BASE_URL}/api/v2/ecommerce/invoices/process/`, {
         method: "POST",
         headers: {
-          // 2. Adaugam Token-ul de autentificare obligatoriu
           'Authorization': `Token ${TEMPORARY_USER_TOKEN}`
         },
         body: formData,
       })
 
-      // 2. DEBUG AVANSAT: Verificăm dacă răspunsul e JSON valid
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        // Dacă serverul ne-a dat HTML (eroare 500 galbenă), îl citim ca text să vedem ce zice
-        const textError = await response.text();
-        console.error("Serverul a returnat HTML (probabil eroare 500):", textError);
-        throw new Error("Eroare de server. Verificați consola browserului.");
-      }
-
       const data = await response.json()
 
-      console.log("Răspuns API:", data);
+      if (!response.ok) throw new Error(data.error || "Eroare")
 
-      if (!response.ok) {
-        throw new Error(data.error || "Eroare la procesarea facturii")
-      }
-
-      // 3. MAPARE DATE: Backend-ul returnează acum o structură complexă
-      // data = { status: "success", data: { summary: { total_processed: 5 }, new_products: [], updated_products: [] } }
       const count = data.data?.summary?.total_processed || 0;
 
       setInvoices((prev) =>
         prev.map((inv) =>
           inv.id === tempId
-            ? {
-                ...inv,
-                status: "completed",
-                productsUpdated: count, 
-              }
+            ? { ...inv, status: "completed", productsUpdated: count }
             : inv
         )
       )
-
       setShowSuccess(true)
       setUploadedFile(null)
       setTimeout(() => setShowSuccess(false), 4000)
 
     } catch (error: any) {
-      console.error("Upload failed:", error)
-      
       setInvoices((prev) =>
-        prev.map((inv) =>
-          inv.id === tempId
-            ? {
-                ...inv,
-                status: "error",
-                error: error.message || "Eroare necunoscută",
-              }
-            : inv
-        )
+        prev.map((inv) => inv.id === tempId ? { ...inv, status: "error", error: error.message } : inv)
       )
-      // alert(`Eroare la încărcare: ${error.message}`) // Opțional, poți scoate alerta dacă afișezi eroarea în tabel
     } finally {
       setIsUploading(false)
     }
   }
 
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    e.currentTarget.classList.add("border-primary", "bg-primary/5")
-  }
-
-  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    e.currentTarget.classList.remove("border-primary", "bg-primary/5")
-  }
-
+  // Drag & Drop handlers
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); e.currentTarget.classList.add("border-primary", "bg-primary/5") }
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); e.currentTarget.classList.remove("border-primary", "bg-primary/5") }
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    e.currentTarget.classList.remove("border-primary", "bg-primary/5")
-    const files = e.dataTransfer.files
-    if (files.length > 0) {
-      handleFileSelect(files[0])
-    }
+    e.preventDefault(); e.currentTarget.classList.remove("border-primary", "bg-primary/5");
+    if (e.dataTransfer.files.length > 0) handleFileSelect(e.dataTransfer.files[0])
   }
 
   return (
@@ -208,20 +242,20 @@ export default function InvoicesPage() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold tracking-tight">Facturi</h1>
-              <p className="text-muted-foreground">Încărcați și gestionați facturile pentru actualizarea stocurilor</p>
+              <p className="text-muted-foreground">Monitorizare automată email și încărcare manuală</p>
             </div>
             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
               <DialogTrigger asChild>
                 <Button size="lg">
                   <Upload className="mr-2 h-4 w-4" />
-                  Încarcă Factură
+                  Încarcă Manual
                 </Button>
               </DialogTrigger>
               <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                   <DialogTitle>Încarcă Factură</DialogTitle>
                   <DialogDescription>
-                    Încărcați un fișier PDF sau JPG. Sistemul va extrage datele și va actualiza stocurile.
+                    PDF-ul va fi analizat de AI pentru actualizarea stocurilor.
                   </DialogDescription>
                 </DialogHeader>
 
@@ -233,55 +267,22 @@ export default function InvoicesPage() {
                 >
                   <FileText className="mx-auto h-8 w-8 text-muted-foreground mb-3" />
                   <p className="font-medium mb-1">Trageți fișierul aici</p>
-                  <p className="text-sm text-muted-foreground mb-4">sau</p>
                   <label>
-                    <input
-                      type="file"
-                      accept=".pdf,.jpg,.jpeg"
-                      onChange={(e) => {
-                        if (e.target.files?.[0]) {
-                          handleFileSelect(e.target.files[0])
-                        }
-                      }}
-                      className="hidden"
-                    />
-                    <Button variant="outline" size="sm" type="button">
-                      Selectați Fișier
-                    </Button>
+                    <input type="file" accept=".pdf,.jpg,.jpeg" onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])} className="hidden" />
+                    <Button variant="outline" size="sm" type="button" className="mt-2">Selectați Fișier</Button>
                   </label>
                 </div>
 
                 {uploadedFile && (
-                  <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                    <p className="text-sm font-medium text-blue-900">Fișier selectat:</p>
-                    <p className="text-sm text-blue-700">{uploadedFile.name}</p>
-                    <p className="text-xs text-blue-600 mt-1">
-                      Dimensiune: {(uploadedFile.size / 1024 / 1024).toFixed(2)} MB
-                    </p>
+                  <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-900">
+                    Fișier: {uploadedFile.name}
                   </div>
                 )}
 
                 <div className="flex gap-2 pt-4">
-                  <Button
-                    onClick={() => {
-                      setIsDialogOpen(false)
-                      setUploadedFile(null)
-                    }}
-                    variant="outline"
-                    className="flex-1"
-                    disabled={isUploading}
-                  >
-                    Anulare
-                  </Button>
+                  <Button onClick={() => setIsDialogOpen(false)} variant="outline" className="flex-1">Anulare</Button>
                   <Button onClick={handleUpload} disabled={!uploadedFile || isUploading} className="flex-1">
-                    {isUploading ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Se procesează...
-                      </>
-                    ) : (
-                      "Încarcă"
-                    )}
+                    {isUploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Procesare AI...</> : "Încarcă"}
                   </Button>
                 </div>
               </DialogContent>
@@ -289,13 +290,13 @@ export default function InvoicesPage() {
           </div>
 
           {showSuccess && (
-            <Card className="border-green-200 bg-green-50">
+            <Card className="border-green-200 bg-green-50 animate-in slide-in-from-top-2">
               <CardContent className="pt-6">
                 <div className="flex items-center gap-3">
                   <CheckCircle2 className="h-5 w-5 text-green-600" />
                   <div>
-                    <p className="font-medium text-green-900">Factură procesată cu succes!</p>
-                    <p className="text-sm text-green-700">Datele au fost extrase și stocurile au fost actualizate.</p>
+                    <p className="font-medium text-green-900">Succes!</p>
+                    <p className="text-sm text-green-700">Factura a fost procesată și produsele au fost actualizate.</p>
                   </div>
                 </div>
               </CardContent>
@@ -304,79 +305,72 @@ export default function InvoicesPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Facturile Încărcate</CardTitle>
-              <CardDescription>Istoric al facturilor și statutul procesării</CardDescription>
+              <CardTitle>Istoric Facturi</CardTitle>
+              <CardDescription>Facturi detectate automat pe email sau încărcate manual</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="rounded-md border">
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead>SURSA</TableHead>
                       <TableHead>FIȘIER</TableHead>
-                      <TableHead>TIP</TableHead>
-                      <TableHead>DATA ÎNCĂRCĂRII</TableHead>
+                      <TableHead>DATA</TableHead>
                       <TableHead>STATUS</TableHead>
-                      <TableHead>PRODUSE PROCESATE</TableHead>
+                      <TableHead>UPDATE</TableHead>
                       <TableHead>ACȚIUNI</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {invoices.map((invoice) => (
                       <TableRow key={invoice.id}>
+                        <TableCell>
+                            {invoice.source === 'email' ? (
+                                <Badge variant="secondary" className="bg-blue-100 text-blue-700 gap-1">
+                                    <Mail className="h-3 w-3" /> Email
+                                </Badge>
+                            ) : (
+                                <Badge variant="outline" className="gap-1">
+                                    <Upload className="h-3 w-3" /> Manual
+                                </Badge>
+                            )}
+                        </TableCell>
                         <TableCell className="font-medium">
                             <div className="flex flex-col">
                                 <span>{invoice.fileName}</span>
-                                {invoice.error && (
-                                    <span className="text-xs text-red-500 truncate max-w-[200px]">{invoice.error}</span>
-                                )}
+                                {invoice.error && <span className="text-xs text-red-500">{invoice.error}</span>}
                             </div>
                         </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{invoice.fileType.toUpperCase()}</Badge>
-                        </TableCell>
                         <TableCell className="text-sm">
-                          {invoice.uploadDate.toLocaleDateString("ro-RO")}{" "}
                           {invoice.uploadDate.toLocaleTimeString("ro-RO")}
                         </TableCell>
                         <TableCell>
-                          {invoice.status === "uploading" && (
-                            <div className="flex items-center gap-2">
-                              <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                              <span className="text-sm text-blue-600">Se încarcă...</span>
+                          {invoice.status === "processing" || invoice.status === "uploading" ? (
+                            <div className="flex items-center gap-2 text-amber-600 font-medium animate-pulse">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              AI Analyzing...
                             </div>
-                          )}
-                          {invoice.status === "processing" && (
-                            <div className="flex items-center gap-2">
-                              <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
-                              <span className="text-sm text-amber-600">Se procesează...</span>
+                          ) : invoice.status === "completed" ? (
+                            <div className="flex items-center gap-2 text-green-600 font-medium">
+                              <CheckCircle2 className="h-4 w-4" />
+                              Finalizat
                             </div>
-                          )}
-                          {invoice.status === "completed" && (
-                            <div className="flex items-center gap-2">
-                              <CheckCircle2 className="h-4 w-4 text-green-600" />
-                              <span className="text-sm text-green-600">Finalizat</span>
-                            </div>
-                          )}
-                          {invoice.status === "error" && (
-                            <div className="flex items-center gap-2">
-                              <AlertCircle className="h-4 w-4 text-red-600" />
-                              <span className="text-sm text-red-600">Eroare</span>
+                          ) : (
+                            <div className="flex items-center gap-2 text-red-600">
+                              <AlertCircle className="h-4 w-4" /> Eroare
                             </div>
                           )}
                         </TableCell>
                         <TableCell className="text-sm">
                           {invoice.status === "completed" ? (
-                            <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">
-                              {invoice.productsUpdated} produse
+                            <Badge className="bg-green-100 text-green-800 hover:bg-green-100 border-green-200">
+                              +{invoice.productsUpdated} stoc
                             </Badge>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
+                          ) : "-"}
                         </TableCell>
                         <TableCell>
                           <Button variant="ghost" size="sm" disabled={invoice.status !== "completed"}>
-                            <Eye className="h-4 w-4 mr-2" />
-                            Vizualizare
+                            <Eye className="h-4 w-4 mr-2" /> Detalii
                           </Button>
                         </TableCell>
                       </TableRow>
