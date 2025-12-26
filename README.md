@@ -1,24 +1,33 @@
-Prezentare echipa Atlas AI - UiPath Hackathon
-https://www.canva.com/design/DAG5f5eyQHk/ohg0Oo7xts99KgNABtFuWQ/edit?utm_content=DAG5f5eyQHk&utm_campaign=designshare&utm_medium=link2&utm_source=sharebutton
+# AtlasAI Commerce - Intelligent Automation for SME Retailers
 
-**AtlasAI Commerce - Automatizare Inteligenta pentru Retailerii IMM**
+**Atlas AI Team Presentation - UiPath Hackathon** [View Presentation on Canva](https://www.canva.com/design/DAG5f5eyQHk/ohg0Oo7xts99KgNABtFuWQ/edit?utm_content=DAG5f5eyQHk&utm_campaign=designshare&utm_medium=link2&utm_source=sharebutton)
 
-Proiectul pleaca dintr-o realitate personala: familia mea activeaza in retail din 1991, iar astazi, IMM-urile sunt sufocate de expansiunea marilor retaileri. Trecerea in e-commerce este vitala pentru supravietuire, dar este blocata de lipsa echipelor IT interne si costurile prohibitive ale solutiilor ERP. Misiunea AtlasAI este sa democratizeze accesul la tehnologie, oferind micilor antreprenori un "angajat digital" capabil sa gestioneze autonom operatiunile complexe de vanzare online, eliminand barierele tehnice.
+---
 
-Gestionarea manuala a stocurilor pe platforme multiple (eMAG, Trendyol) este un cosmar logistic. De frica "overordering-ului" (vanzarea produselor fara stoc fizic), comerciantii declara stocuri mai mici, pierzand vanzari. Platforma noastra rezolva problema fragmentarii datelor (facturi pe mail, stocuri in Excel, comenzi disparate) si elimina riscul uman. Transformam un proces manual si predispus la eroare intr-un flux automatizat, sincronizat in timp real, care maximizeaza profitul.
+## 📌 Mission & Vision
+The project stems from a personal reality: my family has been active in retail since 1991, and today, SMEs are being suffocated by the expansion of major retailers. Transitioning to e-commerce is vital for survival, yet it is often blocked by the lack of internal IT teams and the prohibitive costs of ERP solutions. 
 
-Sistemul este un ecosistem de agenti inteligenti care colaboreaza autonom:
+**AtlasAI's mission** is to democratize access to technology by providing small entrepreneurs with a "digital employee" capable of autonomously managing complex online sales operations, effectively removing technical barriers.
 
-- **Agentul de Aprovizionare (Invoice Processing):** Monitorizeaza emailul si proceseaza facturile de la furnizori. Daca produsul exista, actualizeaza stocul. Daca identifica un produs nou (SKU inexistent), agentul devine proactiv: cauta pe web specificatii, imagini de inalta rezolutie si creeaza automat fisa produsului in baza de date, fara interventie umana.
-- **Inventory Manager (Sincronizare):** Actioneaza ca "Single Source of Truth". Orice modificare de stoc sau pret in sistemul intern se propaga instantaneu pe toate canalele de vanzare (eMAG, Trendyol, WooCommerce), eliminand complet riscul de overselling.
-- **Agentul de Crestere (Bundling AI):** Analizeaza istoric comenzile folosind "Market Basket Analysis" pentru a identifica produse cumparate frecvent impreuna. Pe baza stocului disponibil, propune automat pachete promotionale (Bundles). Mai mult, foloseste LLMs (Large Language Models) pentru a genera titluri atractive si descrieri de marketing persuasive, gata de publicare cu un singur click.
+## 💡 The Problem
+Manually managing inventory across multiple platforms (eMAG, Trendyol, etc.) is a logistical nightmare. Fear of "over-ordering" (selling products without physical stock) leads merchants to declare lower stock levels, resulting in lost sales. 
 
-Solutia este construita pe o arhitectura moderna, modulara si scalabila:
+Our platform solves the problem of data fragmentation (invoices in emails, stocks in Excel, disparate orders) and eliminates human error. We transform a manual, error-prone process into an automated, real-time synchronized workflow that maximizes profit.
 
-- **Backend & Logic:** Python cu Django REST Framework pentru API-uri si logica de business.
-- **Frontend:** **Frontend:** Next.js 14 (App Router), TypeScript, Tailwind CSS, Shadcn UI
-- **Data:** PostgreSQL pentru stocarea relatiilor complexe intre produse si comenzi.
-- **AI & Data Science:**
-  - **LLMs (Generative AI):** Pentru crearea automata a continutului de marketing.
-  - **Pandas/NumPy:** Pentru analiza statistica a datelor si generarea de bundles.
-- **DevOps:** Docker pentru containerizare si deployment rapid.
+## 🤖 The System: An Ecosystem of Intelligent Agents
+AtlasAI consists of collaborative agents that work autonomously:
+
+* **Supply Agent (Invoice Processing):** Monitors emails and processes supplier invoices. If the product exists, it updates the stock. If it identifies a new product (non-existent SKU), the agent becomes proactive: it searches the web for specifications and high-resolution images, automatically creating the product file in the database without human intervention.
+* **Inventory Manager (Synchronization):** Acts as the "Single Source of Truth." Any change in stock or price within the internal system is instantly propagated across all sales channels (eMAG, Trendyol, WooCommerce), completely eliminating the risk of overselling.
+* **Growth Agent (AI Bundling):** Analyzes order history using "Market Basket Analysis" to identify products frequently bought together. Based on available stock, it automatically proposes promotional bundles. Furthermore, it uses LLMs (Large Language Models) to generate attractive titles and persuasive marketing descriptions, ready to be published with a single click.
+
+## 🛠 Tech Stack
+The solution is built on a modern, modular, and scalable architecture:
+
+* **Backend & Logic:** Python with Django REST Framework for APIs and business logic.
+* **Frontend:** Next.js 14 (App Router), TypeScript, Tailwind CSS, Shadcn UI.
+* **Database:** PostgreSQL for storing complex relationships between products and orders.
+* **AI & Data Science:**
+    * **LLMs (Generative AI):** For automated marketing content creation.
+    * **Pandas/NumPy:** For statistical data analysis and bundle generation.
+* **DevOps:** Docker for containerization and rapid deployment.
